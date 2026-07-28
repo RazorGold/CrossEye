@@ -16,6 +16,9 @@ class HomeActivity final : public Activity {
   bool recentsLoaded = false;
   bool firstRenderDone = false;
   bool hasOpdsServers = false;
+  // Whether the Reading Stats row is shown. Off when stats tracking is
+  // disabled, so the menu never offers a screen that would read as all zeros.
+  bool hasReadingStats = false;
   bool coverRendered = false;      // Track if cover has been rendered once
   bool coverBufferStored = false;  // Track if cover buffer is stored
   // Home can be entered while Back is still held (e.g. leaving Settings with
@@ -33,8 +36,9 @@ class HomeActivity final : public Activity {
   std::vector<RecentBook> recentBooks;
   const HomeMenuItem initialMenuItem;
 
-  // Convert HomeMenuItem to menu index (used in onEnter)
-  static int menuItemToIndex(HomeMenuItem item, bool hasOpdsUrl) {
+  // Convert HomeMenuItem to menu index (used in onEnter).
+  // Must stay in lockstep with indexToMenuItem and the render() menu order.
+  static int menuItemToIndex(HomeMenuItem item, bool hasOpdsUrl, bool hasReadingStats) {
     int i = 0;
     if (item == HomeMenuItem::FILE_BROWSER) return i;
     ++i;
@@ -42,6 +46,8 @@ class HomeActivity final : public Activity {
     ++i;
     if (item == HomeMenuItem::OPDS_BROWSER) return hasOpdsUrl ? i : 0;
     if (hasOpdsUrl) ++i;
+    if (item == HomeMenuItem::READING_STATS) return hasReadingStats ? i : 0;
+    if (hasReadingStats) ++i;
     if (item == HomeMenuItem::FILE_TRANSFER) return i;
     ++i;
     if (item == HomeMenuItem::SETTINGS_MENU) return i;
@@ -49,11 +55,12 @@ class HomeActivity final : public Activity {
   }
 
   // Convert menu index to HomeMenuItem (used in loop)
-  static HomeMenuItem indexToMenuItem(int idx, bool hasOpdsUrl) {
+  static HomeMenuItem indexToMenuItem(int idx, bool hasOpdsUrl, bool hasReadingStats) {
     int i = 0;
     if (idx == i++) return HomeMenuItem::FILE_BROWSER;
     if (idx == i++) return HomeMenuItem::RECENTS;
     if (hasOpdsUrl && idx == i++) return HomeMenuItem::OPDS_BROWSER;
+    if (hasReadingStats && idx == i++) return HomeMenuItem::READING_STATS;
     if (idx == i++) return HomeMenuItem::FILE_TRANSFER;
     if (idx == i) return HomeMenuItem::SETTINGS_MENU;
     return HomeMenuItem::NONE;
@@ -64,6 +71,7 @@ class HomeActivity final : public Activity {
   void onSettingsOpen();
   void onFileTransferOpen();
   void onOpdsBrowserOpen();
+  void onReadingStatsOpen();
 
   int getMenuItemCount() const;
   bool storeCoverBuffer();    // Store frame buffer for cover image

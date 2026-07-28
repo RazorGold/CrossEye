@@ -10,7 +10,7 @@
 
 #include "I18nKeys.h"
 #include "SettingsList.h"
-#include "fontIds.h"
+#include "readerFont.h"
 
 namespace {
 
@@ -195,7 +195,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   strncpy(sdFontFamilyName, sfn, sizeof(sdFontFamilyName) - 1);
   sdFontFamilyName[sizeof(sdFontFamilyName) - 1] = '\0';
   if (storedFontFamily == LEGACY_OPENDYSLEXIC && sdFontFamilyName[0] == '\0') {
-    fontFamily = NOTOSERIF;
+    fontFamily = BUILTIN_READER_FONT;
     strncpy(sdFontFamilyName, "OpenDyslexic", sizeof(sdFontFamilyName) - 1);
     sdFontFamilyName[sizeof(sdFontFamilyName) - 1] = '\0';
     needsResave = true;
@@ -267,28 +267,16 @@ float CrossPointSettings::getReaderLineCompression() const {
     }
   }
 
-  switch (fontFamily) {
-    case NOTOSERIF:
+  // Bitter is the only built-in family; it carries the same line-spacing
+  // multipliers Noto Serif used, which suit its slab-serif metrics.
+  switch (lineSpacing) {
+    case TIGHT:
+      return 0.95f;
+    case NORMAL:
     default:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.95f;
-        case NORMAL:
-        default:
-          return 1.0f;
-        case WIDE:
-          return 1.1f;
-      }
-    case NOTOSANS:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.90f;
-        case NORMAL:
-        default:
-          return 0.95f;
-        case WIDE:
-          return 1.0f;
-      }
+      return 1.0f;
+    case WIDE:
+      return 1.1f;
   }
 }
 
@@ -323,31 +311,17 @@ int CrossPointSettings::getReaderFontId() const {
     // Fall through to built-in if SD font not found
   }
 
-  switch (fontFamily) {
-    case NOTOSERIF:
+  // Bitter is the only built-in family, so fontFamily selects nothing here; it
+  // is still range-checked on load so a stale stored index cannot escape.
+  switch (fontSize) {
+    case SMALL:
+      return READER_FONT_12_ID;
+    case MEDIUM:
     default:
-      switch (fontSize) {
-        case SMALL:
-          return NOTOSERIF_12_FONT_ID;
-        case MEDIUM:
-        default:
-          return NOTOSERIF_14_FONT_ID;
-        case LARGE:
-          return NOTOSERIF_16_FONT_ID;
-        case EXTRA_LARGE:
-          return NOTOSERIF_18_FONT_ID;
-      }
-    case NOTOSANS:
-      switch (fontSize) {
-        case SMALL:
-          return NOTOSANS_12_FONT_ID;
-        case MEDIUM:
-        default:
-          return NOTOSANS_14_FONT_ID;
-        case LARGE:
-          return NOTOSANS_16_FONT_ID;
-        case EXTRA_LARGE:
-          return NOTOSANS_18_FONT_ID;
-      }
+      return READER_FONT_14_ID;
+    case LARGE:
+      return READER_FONT_16_ID;
+    case EXTRA_LARGE:
+      return READER_FONT_18_ID;
   }
 }

@@ -76,10 +76,14 @@ def get_base_version(project_dir):
     return config.get('crosspoint', 'version')
 
 
+# Dev environments that need a generated version string. Release envs set
+# CROSSPOINT_VERSION via build_flags in platformio.ini and are unaffected.
+# 'notoserif' is 'default' with a different built-in reader font (readerFont.h).
+DEV_ENVS = ('default', 'notoserif')
+
+
 def inject_version(env):
-    # Only applies to the dev (default) environment; release envs set the
-    # version via build_flags in platformio.ini and are unaffected.
-    if env['PIOENV'] != 'default':
+    if env['PIOENV'] not in DEV_ENVS:
         return
 
     project_dir = env['PROJECT_DIR']

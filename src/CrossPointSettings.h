@@ -86,7 +86,11 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   enum SIDE_BUTTON_LAYOUT { PREV_NEXT = 0, NEXT_PREV = 1, SIDE_BUTTONS_DISABLED = 2, SIDE_BUTTON_LAYOUT_COUNT };
 
   // Font family options (built-in fonts only; SD card fonts use sdFontFamilyName)
-  enum FONT_FAMILY { NOTOSERIF = 0, NOTOSANS = 1, FONT_FAMILY_COUNT };
+  // A build ships exactly one built-in reader face -- each costs ~1.08 MB of the
+  // 6.25 MB OTA slot -- so this enum has a single entry. Which face it names is
+  // a build-time choice; see src/readerFont.h. Everything else is reachable as
+  // an SD card font at zero flash cost.
+  enum FONT_FAMILY { BUILTIN_READER_FONT = 0, FONT_FAMILY_COUNT };
   static constexpr uint8_t LEGACY_OPENDYSLEXIC = 2;
   static constexpr uint8_t BUILTIN_FONT_COUNT = FONT_FAMILY_COUNT;
   // Font size options
@@ -207,7 +211,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t frontButtonLeft = FRONT_HW_LEFT;
   uint8_t frontButtonRight = FRONT_HW_RIGHT;
   // Reader font settings
-  uint8_t fontFamily = NOTOSERIF;
+  uint8_t fontFamily = BUILTIN_READER_FONT;
   uint8_t fontSize = MEDIUM;
   uint8_t lineSpacing = NORMAL;
   uint8_t paragraphAlignment = JUSTIFIED;

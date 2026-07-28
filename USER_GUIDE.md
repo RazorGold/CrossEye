@@ -236,8 +236,10 @@ The Settings screen allows you to configure the device's behavior. There are a f
 
 - **Reader Font Family**: Choose the font used for reading:
   
-  - "Noto Serif" (default) - Google's serif font
-  - "Noto Sans" - Google's sans-serif font
+  - The built-in family, which depends on which binary you flashed: **Bitter** (a slab serif
+    drawn for e-ink) in the `default` build, or **Noto Serif** in the `notoserif` build. A build
+    carries exactly one, so this is chosen at flash time rather than in the menu.
+  - Any font installed on the SD card also appears in this list (see 3.8)
 
 - **Reader Font Size**: Adjust the text size for reading; options are "Small", "Medium" (default), "Large", or "X Large".
 
@@ -531,7 +533,7 @@ To use custom sleep images, set the sleep screen mode to **Custom** or **Cover +
 
 ### 3.8 Custom Fonts (SD Card)
 
-CrossPoint supports loading additional fonts from the SD card, extending beyond the two built-in families (Noto Serif, Noto Sans). Custom fonts can include extended Unicode coverage, enabling CJK (Chinese, Japanese, Korean) and other scripts.
+CrossEyed supports loading additional fonts from the SD card, extending beyond the single built-in family (Bitter). This is how you get Noto Serif, Noto Sans, Literata, OpenDyslexic and the rest — keeping them off the firmware leaves roughly 1.9 MB of the OTA slot free. Custom fonts can include extended Unicode coverage, enabling CJK (Chinese, Japanese, Korean) and other scripts.
 
 There are three ways to install fonts:
 

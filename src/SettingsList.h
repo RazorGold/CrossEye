@@ -14,13 +14,14 @@
 #include "CrossPointSettings.h"
 #include "KOReaderCredentialStore.h"
 #include "activities/settings/SettingsActivity.h"
+#include "readerFont.h"
 #include "util/DictionaryRegistry.h"
 
 // Build the font family setting dynamically. When registry is non-null, SD card fonts
 // are appended after the built-in fonts. Otherwise only built-in fonts are listed.
 inline SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
   // Built-in font labels (StrId)
-  std::vector<StrId> enumValues = {StrId::STR_NOTO_SERIF, StrId::STR_NOTO_SANS};
+  std::vector<StrId> enumValues = {READER_FONT_NAME_STR_ID};
   // Runtime string labels for SD card fonts
   std::vector<std::string> enumStringValues;
 
@@ -41,8 +42,7 @@ inline SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
   // with all options when SD fonts are present.
   std::vector<std::string> allStringValues;
   if (sdFontCount > 0) {
-    allStringValues.push_back(I18N.get(StrId::STR_NOTO_SERIF));
-    allStringValues.push_back(I18N.get(StrId::STR_NOTO_SANS));
+    allStringValues.push_back(I18N.get(READER_FONT_NAME_STR_ID));
     allStringValues.insert(allStringValues.end(), enumStringValues.begin(), enumStringValues.end());
   }
 
@@ -178,7 +178,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
         // Built-in font-family entry. Replaced per-call with a registry-aware
         // version when SD fonts are installed.
         SettingInfo::Enum(StrId::STR_FONT_FAMILY, &CrossPointSettings::fontFamily,
-                          {StrId::STR_NOTO_SERIF, StrId::STR_NOTO_SANS}, "fontFamily", StrId::STR_CAT_READER)
+                          {READER_FONT_NAME_STR_ID}, "fontFamily", StrId::STR_CAT_READER)
             .withTextSettings(),
         SettingInfo::Enum(StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize,
                           {StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE, StrId::STR_X_LARGE}, "fontSize",

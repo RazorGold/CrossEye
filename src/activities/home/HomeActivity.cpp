@@ -17,6 +17,7 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
+#include "activities/reader/BookStatsActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -26,6 +27,9 @@ int HomeActivity::getMenuItemCount() const {
     count += recentBooks.size();
   }
   if (hasOpdsServers) {
+    count++;
+  }
+  if (hasReadingStats) {
     count++;
   }
   return count;
@@ -112,12 +116,15 @@ void HomeActivity::onEnter() {
   Activity::onEnter();
 
   hasOpdsServers = OPDS_STORE.hasServers();
+  hasReadingStats = SETTINGS.shouldTrackReadingStats();
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   loadRecentBooks(metrics.homeRecentBooksCount);
 
   const auto base = static_cast<int>(recentBooks.size());
-  selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, hasOpdsServers);
+  selectorIndex = initialMenuItem == HomeMenuItem::NONE
+                      ? 0
+                      : base + menuItemToIndex(initialMenuItem, hasOpdsServers, hasReadingStats);
 
   // Trigger first update
   requestUpdate();
@@ -176,7 +183,7 @@ void HomeActivity::loop() {
       return;
     }
     const int menuIndex = selectorIndex - static_cast<int>(recentBooks.size());
-    switch (indexToMenuItem(menuIndex, hasOpdsServers)) {
+    switch (indexToMenuItem(menuIndex, hasOpdsServers, hasReadingStats)) {
       case HomeMenuItem::FILE_BROWSER:
         onFileBrowserOpen();
         break;
@@ -185,6 +192,9 @@ void HomeActivity::loop() {
         break;
       case HomeMenuItem::OPDS_BROWSER:
         onOpdsBrowserOpen();
+        break;
+      case HomeMenuItem::READING_STATS:
+        onReadingStatsOpen();
         break;
       case HomeMenuItem::FILE_TRANSFER:
         onFileTransferOpen();
@@ -304,9 +314,18 @@ void HomeActivity::render(RenderLock&&) {
                                         tr(STR_SETTINGS_TITLE)};
   std::vector<UIIcon> menuIcons = {Folder, Recent, Transfer, Settings};
 
+  // Insertion order must match indexToMenuItem: OPDS first, then Reading Stats,
+  // both sitting between Recents and File Transfer.
+  int insertAt = 2;
   if (hasOpdsServers) {
-    menuItems.insert(menuItems.begin() + 2, tr(STR_OPDS_BROWSER));
-    menuIcons.insert(menuIcons.begin() + 2, Library);
+    menuItems.insert(menuItems.begin() + insertAt, tr(STR_OPDS_BROWSER));
+    menuIcons.insert(menuIcons.begin() + insertAt, Library);
+    insertAt++;
+  }
+
+  if (hasReadingStats) {
+    menuItems.insert(menuItems.begin() + insertAt, tr(STR_READING_STATS));
+    menuIcons.insert(menuIcons.begin() + insertAt, Chart);
   }
 
   if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
@@ -351,3 +370,23 @@ void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
+
+void HomeActivity::onReadingStatsOpen() {
+  // The stats screen opens on its per-book page, so give it the book Resume
+  // would open (recentBooks is most-recent-first and already pruned of files
+  // missing from the card). With no recents we hand it an empty cache path,
+  // which hasEditableBook() treats as "nothing to save" — the device-wide page
+  // is then one Right/Down away and is what the user came for.
+  const bool hasBook = !recentBooks.empty() && FsHelpers::hasEpubExtension(recentBooks[0].path);
+  // Constructing an Epub only hashes the path into a cache key; no SD I/O here.
+  const std::string cachePath = hasBook ? Epub(recentBooks[0].path, "/.crosspoint").getCachePath() : std::string{};
+  const std::string title = hasBook ? recentBooks[0].title : std::string(tr(STR_READING_STATS));
+  const BookReadingStats bookStats = hasBook ? BookReadingStats::load(cachePath) : BookReadingStats{};
+
+  // progressPercent -1 means "unknown": home has no open section to measure
+  // against, and hasEstimatedTimeLeft is false because time-left estimation was
+  // deliberately not ported from CrossInk.
+  startActivityForResult(std::make_unique<BookStatsActivity>(renderer, mappedInput, title, cachePath, bookStats, -1.0f,
+                                                             false, 0, GlobalReadingStats::load(), true),
+                         [this](const ActivityResult&) { requestUpdate(); });
+}

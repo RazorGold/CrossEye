@@ -372,6 +372,19 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
         charCount++;
       }
 
+      // Short function words (a, is, of, in, the, and) carry little meaning, and
+      // bolding them adds visual noise without giving the eye a useful landing
+      // point. Below this length the word renders plain, like punctuation does.
+      constexpr size_t FOCUS_READING_MIN_WORD_CHARS = 4;
+      if (charCount < FOCUS_READING_MIN_WORD_CHARS) {
+        words.emplace_back(segment);
+        wordStyles.push_back(baseStyle);
+        wordContinues.push_back(attach);
+        wordNoSpaceBefore.push_back(noSpaceBefore);
+        wordIsFocusSuffix.push_back(false);
+        return;
+      }
+
       // Target 45% for 1-bold at 4 chars and 3-bold at 7 chars with floor truncation
       constexpr size_t FOCUS_READING_PERCENT = 45;
       size_t targetBoldChars = (charCount * FOCUS_READING_PERCENT) / 100;
