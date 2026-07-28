@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Recover per-book reading stats left behind by CrossInk when moving to CrossEyed.
+"""Recover per-book reading stats left behind by CrossInk when moving to CrossEye.
 
 Why this is needed
 ------------------
@@ -8,19 +8,19 @@ named after a hash of the book's path:
 
     /.crosspoint/epub_<hash>/stats_v5.bin
 
-CrossInk changed the hash. CrossEyed is based on CrossPoint 1.5.0 and still uses
+CrossInk changed the hash. CrossEye is based on CrossPoint 1.5.0 and still uses
 the original:
 
-    CrossPoint / CrossEyed  epub_<std::hash<std::string>>   (MurmurHash2, 32-bit)
+    CrossPoint / CrossEye  epub_<std::hash<std::string>>   (MurmurHash2, 32-bit)
     CrossInk                epub_<FNV-1a 64-bit>
 
 CrossInk also *renames* the old directory to the new name on first open, so
-after running CrossInk the card only has the FNV-named directories. CrossEyed
+after running CrossInk the card only has the FNV-named directories. CrossEye
 does not recognise those, silently re-indexes each book into a fresh
 std::hash-named directory, and the old stats sit there orphaned.
 
 Nothing was deleted. This script copies each book's stats file from the CrossInk
-directory into the matching CrossEyed one.
+directory into the matching CrossEye one.
 
 Global stats (/.crosspoint/global_stats.bin) are NOT affected -- that path and
 its file format are identical in both firmwares, so total reading time, pages
@@ -34,7 +34,7 @@ Usage
     # Actually copy:
     python3 recover_crossink_stats.py /media/you/SDCARD --apply
 
-Existing CrossEyed stats files are never overwritten unless --force is given;
+Existing CrossEye stats files are never overwritten unless --force is given;
 a timestamped .bak copy is made first either way.
 """
 
@@ -58,7 +58,7 @@ def std_hash_string(s: str) -> int:
     """libstdc++ std::hash<std::string> on a 32-bit target (ESP32-C3).
 
     Mirrors _Hash_bytes() in libsupc++/hash_bytes.cc: MurmurHash2, 32-bit
-    variant, seeded with 0xc70f6907. Used by CrossPoint/CrossEyed in
+    variant, seeded with 0xc70f6907. Used by CrossPoint/CrossEye in
     lib/Epub/Epub.h to build the cache key.
     """
     data = s.encode("utf-8")
@@ -125,12 +125,12 @@ def find_stats_file(cache_dir: Path) -> Path | None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Copy orphaned CrossInk per-book stats into their CrossEyed cache directories."
+        description="Copy orphaned CrossInk per-book stats into their CrossEye cache directories."
     )
     parser.add_argument("sd_root", type=Path, help="Mount point of the SD card (the folder containing .crosspoint)")
     parser.add_argument("--apply", action="store_true", help="Actually copy files (default is a dry run)")
     parser.add_argument(
-        "--force", action="store_true", help="Overwrite a CrossEyed stats file that already exists (backed up first)"
+        "--force", action="store_true", help="Overwrite a CrossEye stats file that already exists (backed up first)"
     )
     args = parser.parse_args()
 
@@ -155,13 +155,13 @@ def main() -> int:
     #
     # std_hash_string() is a transcription of libstdc++'s 32-bit _Hash_bytes,
     # and there is no way to confirm it off-device -- so confirm it against the
-    # card instead. If CrossEyed has opened even one book, a directory named
+    # card instead. If CrossEye has opened even one book, a directory named
     # with this hash must already exist. No matches means either the hash is
-    # wrong (do not write) or CrossEyed never ran (nothing to recover into).
+    # wrong (do not write) or CrossEye never ran (nothing to recover into).
     existing = {p.name for p in cache_root.iterdir() if p.is_dir() and p.name.startswith("epub_")}
     verified = [b for b in books if crosseyed_dir_name(device_path(b, sd_root)) in existing]
     if not verified:
-        print("error: none of the computed CrossEyed cache directory names exist on this card.", file=sys.stderr)
+        print("error: none of the computed CrossEye cache directory names exist on this card.", file=sys.stderr)
         if existing:
             print(
                 f"       The card has {len(existing)} epub_* directories, so they were named by a\n"
@@ -170,9 +170,9 @@ def main() -> int:
             )
         else:
             print("       The card has no epub_* cache directories at all.", file=sys.stderr)
-        print("       Boot CrossEyed and open one book, then run this again.", file=sys.stderr)
+        print("       Boot CrossEye and open one book, then run this again.", file=sys.stderr)
         return 1
-    print(f"Hash check: OK -- {len(verified)}/{len(books)} books match an existing CrossEyed cache directory.")
+    print(f"Hash check: OK -- {len(verified)}/{len(books)} books match an existing CrossEye cache directory.")
     print()
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -189,7 +189,7 @@ def main() -> int:
             continue
 
         if not dst_dir.is_dir():
-            # CrossEyed has not opened this book yet. Creating the directory
+            # CrossEye has not opened this book yet. Creating the directory
             # alone is fine: the firmware rebuilds the rest of the cache on
             # first open and reads the stats file it finds there.
             if args.apply:

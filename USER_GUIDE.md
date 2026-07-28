@@ -533,7 +533,7 @@ To use custom sleep images, set the sleep screen mode to **Custom** or **Cover +
 
 ### 3.8 Custom Fonts (SD Card)
 
-CrossEyed supports loading additional fonts from the SD card, extending beyond the single built-in family (Bitter). This is how you get Noto Serif, Noto Sans, Literata, OpenDyslexic and the rest — keeping them off the firmware leaves roughly 1.9 MB of the OTA slot free. Custom fonts can include extended Unicode coverage, enabling CJK (Chinese, Japanese, Korean) and other scripts.
+CrossEye supports loading additional fonts from the SD card, extending beyond the single built-in family (Bitter). This is how you get Noto Serif, Noto Sans, Literata, OpenDyslexic and the rest — keeping them off the firmware leaves roughly 1.9 MB of the OTA slot free. Custom fonts can include extended Unicode coverage, enabling CJK (Chinese, Japanese, Korean) and other scripts.
 
 There are three ways to install fonts:
 
