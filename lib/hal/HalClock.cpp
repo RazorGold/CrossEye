@@ -7,6 +7,55 @@
 
 HalClock halClock;  // Singleton instance
 
+namespace {
+constexpr const char* kMonthNames[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+
+bool isLeap(const uint16_t year) { return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0; }
+
+uint8_t monthLength(const uint16_t year, const uint8_t month) {
+  static constexpr uint8_t kLengths[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  if (month < 1 || month > 12) return 0;
+  if (month == 2 && isLeap(year)) return 29;
+  return kLengths[month - 1];
+}
+
+bool isValidDate(const uint16_t year, const uint8_t month, const uint8_t day) {
+  return month >= 1 && month <= 12 && day >= 1 && day <= monthLength(year, month);
+}
+
+// Shifts the date by a single day in either direction. Only +/-1 is needed: the UTC
+// offset range is [-12:00, +14:00], so applying it can cross at most one midnight.
+void adjustDateByOneDay(uint16_t& year, uint8_t& month, uint8_t& day, const int delta) {
+  if (delta == 0) return;
+  if (delta > 0) {
+    if (day < monthLength(year, month)) {
+      day++;
+    } else {
+      day = 1;
+      if (month == 12) {
+        month = 1;
+        year++;
+      } else {
+        month++;
+      }
+    }
+    return;
+  }
+  if (day > 1) {
+    day--;
+  } else {
+    if (month == 1) {
+      month = 12;
+      year--;
+    } else {
+      month--;
+    }
+    day = monthLength(year, month);
+  }
+}
+}  // namespace
+
 void HalClock::begin() {
   _available = _sdkRtc.begin();
   LOG_INF("CLK", _available ? "SDK RTC found" : "RTC not found");
@@ -36,6 +85,41 @@ bool HalClock::getTime(uint8_t& hour, uint8_t& minute) const {
   _hasCachedTime = true;
   hour = _cachedHour;
   minute = _cachedMinute;
+  return true;
+}
+
+bool HalClock::getDateTime(uint16_t& year, uint8_t& month, uint8_t& day, uint8_t& hour, uint8_t& minute) const {
+  if (!_available) return false;
+
+  Rtc::DateTime dt;
+  if (!_sdkRtc.now(dt)) return false;
+
+  year = dt.year;
+  month = dt.month;
+  day = dt.day;
+  hour = dt.hour;
+  minute = dt.minute;
+  return true;
+}
+
+bool HalClock::formatDate(char* buf, size_t bufSize, uint8_t utcOffsetQuarterHoursBiased) const {
+  if (bufSize < 13u) return false;
+
+  uint16_t year;
+  uint8_t month, day, hour, minute;
+  if (!getDateTime(year, month, day, hour, minute)) return false;
+
+  // Same clamp as formatTime, so a corrupted persisted offset can't shift the date
+  // outside the real UTC range.
+  if (utcOffsetQuarterHoursBiased > 104) utcOffsetQuarterHoursBiased = 104;
+  const int offsetQuarterHours = static_cast<int>(utcOffsetQuarterHoursBiased) - 48;
+  const int localMinutes = static_cast<int>(hour) * 60 + static_cast<int>(minute) + offsetQuarterHours * 15;
+  const int dayDelta = localMinutes < 0 ? -1 : (localMinutes >= 1440 ? 1 : 0);
+  adjustDateByOneDay(year, month, day, dayDelta);
+  if (!isValidDate(year, month, day)) return false;
+
+  snprintf(buf, bufSize, "%s %u, %u", kMonthNames[month - 1], static_cast<unsigned int>(day),
+           static_cast<unsigned int>(year));
   return true;
 }
 

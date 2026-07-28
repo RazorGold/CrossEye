@@ -34,6 +34,20 @@ class HalClock {
   // Returns false if RTC is not available.
   bool formatTime(char* buf, size_t bufSize, uint8_t utcOffsetQuarterHoursBiased = 48, bool use12Hour = false) const;
 
+  // Returns the raw RTC date and time before any user-configured timezone offset is
+  // applied. The RTC is synced in UTC, so callers needing local wall-clock time should
+  // apply SETTINGS.clockUtcOffsetQ themselves.
+  //
+  // Unlike getTime(), this does not use the 10s poll cache: callers are infrequent
+  // (session start, stats screens) and a cached date would be wrong across midnight.
+  // Returns false if the RTC is unavailable or the read fails.
+  bool getDateTime(uint16_t& year, uint8_t& month, uint8_t& day, uint8_t& hour, uint8_t& minute) const;
+
+  // Format the date into a caller-provided buffer as "Mon D, YYYY" (needs >=13 bytes).
+  // utcOffsetQuarterHoursBiased matches formatTime so the date rolls over at local midnight.
+  // Returns false if the RTC is unavailable or the date is invalid.
+  bool formatDate(char* buf, size_t bufSize, uint8_t utcOffsetQuarterHoursBiased = 48) const;
+
   // Sync the RTC from an NTP server. Requires WiFi to be connected.
   // Blocks for up to ~5s while waiting for SNTP response.
   // Returns true if the RTC was successfully updated.

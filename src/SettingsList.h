@@ -254,6 +254,15 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                             "removeReadBooksFromRecents", StrId::STR_CAT_SYSTEM),
         SettingInfo::Toggle(StrId::STR_MOVE_FINISHED_TO_READ, &CrossPointSettings::moveFinishedToReadFolder,
                             "moveFinishedToReadFolder", StrId::STR_CAT_SYSTEM),
+        SettingInfo::Toggle(StrId::STR_READING_STATS, &CrossPointSettings::trackReadingStats, "trackReadingStats",
+                            StrId::STR_CAT_READER),
+        // Idle threshold: persisted so it can be tuned via the web settings UI, but
+        // category-less so it stays off the on-device Settings screen. The 300s default
+        // suits normal reading; exposing a picker for it is not worth the menu space.
+        SettingInfo::Value(StrId::STR_READING_STATS, &CrossPointSettings::readingIdleTimeThresholdUnits,
+                           {CrossPointSettings::MIN_READING_IDLE_TIME_THRESHOLD_UNITS,
+                            CrossPointSettings::MAX_READING_IDLE_TIME_THRESHOLD_UNITS, 1},
+                           "readingIdleTimeThresholdUnits"),
 
         // OPDS download folder: persisted + web-exposed, but category-less so it
         // is hidden from the on-device Settings screen (edited via OPDS UI).

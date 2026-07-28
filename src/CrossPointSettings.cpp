@@ -58,6 +58,16 @@ uint8_t CrossPointSettings::sleepTimeoutEnumToMinutes(const uint8_t legacyValue)
   }
 }
 
+uint16_t CrossPointSettings::readingIdleTimeThresholdSecondsForUnits(const uint8_t units) {
+  const uint8_t clampedUnits =
+      std::clamp(units, MIN_READING_IDLE_TIME_THRESHOLD_UNITS, MAX_READING_IDLE_TIME_THRESHOLD_UNITS);
+  return static_cast<uint16_t>(clampedUnits) * READING_IDLE_TIME_THRESHOLD_UNIT_SECONDS;
+}
+
+uint16_t CrossPointSettings::getReadingIdleTimeThresholdSeconds() const {
+  return readingIdleTimeThresholdSecondsForUnits(readingIdleTimeThresholdUnits);
+}
+
 void CrossPointSettings::toJson(JsonDocument& doc) const {
   const CrossPointSettings& s = *this;
 

@@ -5,13 +5,35 @@
 
 #include <optional>
 
+#include "BookReadingStats.h"
 #include "BookmarkEntry.h"
 #include "EndOfBookOptions.h"
 #include "EpubReaderMenuActivity.h"
+#include "GlobalReadingStats.h"
 #include "ProgressMapper.h"
 #include "activities/Activity.h"
 
 class EpubReaderActivity final : public Activity {
+  // Reading statistics for the open book and across all books. Accumulated in RAM
+  // during the session and flushed in onExit() -- never on the page-turn path.
+  BookReadingStats stats;
+  GlobalReadingStats globalStats;
+  // Local wall-clock time at session start, used to attribute reading time to
+  // time-of-day / day-of-week buckets. Only valid on devices with an RTC (X3).
+  ReadingStatsDateTime sessionStartLocalDateTime;
+  bool hasSessionStartLocalDateTime = false;
+  // Active reading seconds this session. Page dwells beyond the idle threshold are
+  // rejected before reaching this, so leaving the reader open does not inflate it.
+  uint32_t sessionReadingSeconds = 0;
+  // millis() when the current page was shown; 0 means "not currently timing".
+  unsigned long pageShownAtMs = 0UL;
+
+  // Elapsed seconds on the current page, or false when the interval should not count
+  // (stats disabled, no page timing active, or the dwell exceeded the idle threshold).
+  bool currentPageReadingSecondsForStats(uint32_t& seconds, const char* source) const;
+  // Fold the current page's dwell into sessionReadingSeconds and stop timing.
+  void recordCurrentPageReadingTime(const char* source);
+
   std::shared_ptr<Epub> epub;
   std::unique_ptr<Section> section = nullptr;
   int currentSpineIndex = 0;

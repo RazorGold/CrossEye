@@ -21,6 +21,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "DictionaryWordSelectActivity.h"
+#include "BookStatsActivity.h"
 #include "EpubReaderBookmarksActivity.h"
 #include "EpubReaderChapterSelectionActivity.h"
 #include "EpubReaderFootnotesActivity.h"
@@ -169,6 +170,15 @@ void EpubReaderActivity::onEnter() {
 
   epub->setupCacheDir();
 
+  // Load accumulated statistics for this book and globally. Both are kept in RAM for
+  // the session and flushed in onExit(); the session's own totals start at zero.
+  if (SETTINGS.shouldTrackReadingStats()) {
+    stats = BookReadingStats::load(epub->getCachePath());
+    globalStats = GlobalReadingStats::load();
+    sessionReadingSeconds = 0;
+    hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  }
+
   HalFile f;
   if (Storage.openFileForRead("ERS", epub->getCachePath() + "/progress.bin", f)) {
     uint8_t data[6];
@@ -223,6 +233,38 @@ void EpubReaderActivity::onExit() {
 
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
+
+  if (SETTINGS.shouldTrackReadingStats()) {
+    recordCurrentPageReadingTime("reader_exit");
+
+    // Commit the session. Page intervals longer than the idle threshold were already
+    // rejected before reaching sessionReadingSeconds. Sessions under 1 minute don't
+    // count as a session; under 10 seconds they don't add reading time at all.
+    const uint32_t elapsedSecs = sessionReadingSeconds;
+    if (elapsedSecs >= 60) {
+      if (stats.sessionCount < UINT16_MAX) stats.sessionCount++;
+      globalStats.totalSessions++;
+    }
+    if (elapsedSecs >= 10) {
+      stats.totalReadingSeconds =
+          stats.totalReadingSeconds > UINT32_MAX - elapsedSecs ? UINT32_MAX : stats.totalReadingSeconds + elapsedSecs;
+      globalStats.totalReadingSeconds = globalStats.totalReadingSeconds > UINT32_MAX - elapsedSecs
+                                            ? UINT32_MAX
+                                            : globalStats.totalReadingSeconds + elapsedSecs;
+      if (hasSessionStartLocalDateTime) {
+        stats.recordReadingSpan(sessionStartLocalDateTime, elapsedSecs);
+        globalStats.recordReadingSpan(sessionStartLocalDateTime, elapsedSecs);
+      }
+      // Only claim a start date once the session is substantial enough to be real reading.
+      if (elapsedSecs >= 120 && !stats.startDateManual && !stats.startDate.isValid() && hasSessionStartLocalDateTime) {
+        stats.startDate = sessionStartLocalDateTime.date;
+      }
+    }
+    if (epub) {
+      stats.save(epub->getCachePath());
+    }
+    globalStats.save();
+  }
 
   // Leaving mid-footnote loses the in-RAM return stack on deep sleep; persist the
   // pre-footnote position so the book reopens at the link origin, not the footnote.
@@ -882,6 +924,42 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       addBookmark();
       break;
     }
+    case EpubReaderMenuActivity::MenuAction::READING_STATS: {
+      if (!epub) break;
+      // Fold the current page's dwell in first, so the screen reflects time read up to
+      // now rather than up to the last page turn.
+      recordCurrentPageReadingTime("open_stats");
+
+      float bookProgress = 0.0f;
+      if (epub->getBookSize() > 0 && section && section->estimatedTotalPages() > 0) {
+        const float chapterProgress =
+            static_cast<float>(section->currentPage) / static_cast<float>(section->estimatedTotalPages());
+        bookProgress = epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
+      }
+
+      // Session time is not yet folded into stats (that happens in onExit), so pass a
+      // copy with it applied to avoid the screen under-reporting the current session.
+      BookReadingStats displayStats = stats;
+      displayStats.totalReadingSeconds = displayStats.totalReadingSeconds > UINT32_MAX - sessionReadingSeconds
+                                             ? UINT32_MAX
+                                             : displayStats.totalReadingSeconds + sessionReadingSeconds;
+
+      // hasEstimatedTimeLeft is false: time-left estimation is a CrossInk reader
+      // feature that was deliberately not ported.
+      startActivityForResult(std::make_unique<BookStatsActivity>(renderer, mappedInput, epub->getTitle(),
+                                                                 epub->getCachePath(), displayStats, bookProgress,
+                                                                 false, 0, globalStats),
+                             [this](const ActivityResult& result) {
+                               // Stats screen edits (mark finished, reset, date changes) are written
+                               // straight to disk, so reload rather than keeping the stale in-RAM copy.
+                               if (const auto* statsResult = std::get_if<ReadingStatsResult>(&result.data);
+                                   statsResult && statsResult->changed && epub) {
+                                 stats = BookReadingStats::load(epub->getCachePath());
+                                 globalStats = GlobalReadingStats::load();
+                               }
+                             });
+      break;
+    }
   }
 }
 
@@ -989,7 +1067,52 @@ void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption
   }
 }
 
+bool EpubReaderActivity::currentPageReadingSecondsForStats(uint32_t& seconds, const char* source) const {
+  seconds = 0;
+  if (!SETTINGS.shouldTrackReadingStats() || pageShownAtMs == 0UL) {
+    return false;
+  }
+
+  const unsigned long elapsedMs = millis() - pageShownAtMs;
+  const uint32_t elapsedSeconds = static_cast<uint32_t>(elapsedMs / 1000UL);
+  if (elapsedSeconds == 0) {
+    return false;
+  }
+
+  // A dwell longer than the threshold means the reader was left open rather than read,
+  // so the interval is discarded instead of inflating reading time.
+  const uint32_t thresholdSeconds = SETTINGS.getReadingIdleTimeThresholdSeconds();
+  if (elapsedSeconds > thresholdSeconds) {
+    LOG_DBG("ERS", "Reading time interval rejected as idle: source=%s seconds=%lu threshold=%lu",
+            source ? source : "unknown", static_cast<unsigned long>(elapsedSeconds),
+            static_cast<unsigned long>(thresholdSeconds));
+    return false;
+  }
+
+  seconds = elapsedSeconds;
+  return true;
+}
+
+void EpubReaderActivity::recordCurrentPageReadingTime(const char* source) {
+  uint32_t seconds = 0;
+  if (currentPageReadingSecondsForStats(seconds, source)) {
+    sessionReadingSeconds = sessionReadingSeconds > UINT32_MAX - seconds ? UINT32_MAX : sessionReadingSeconds + seconds;
+    stats.recordForwardPageRead(seconds);
+  }
+  pageShownAtMs = 0UL;
+}
+
 void EpubReaderActivity::pageTurn(bool isForwardTurn) {
+  // Fold the outgoing page's dwell into the session before the page changes. In-RAM
+  // only -- stats are written to SD in onExit(), never here.
+  if (isForwardTurn && SETTINGS.shouldTrackReadingStats()) {
+    recordCurrentPageReadingTime("page_turn");
+    if (stats.totalPagesTurned < UINT32_MAX) stats.totalPagesTurned++;
+    if (globalStats.totalPagesTurned < UINT32_MAX) globalStats.totalPagesTurned++;
+  } else {
+    pageShownAtMs = 0UL;
+  }
+
   if (isForwardTurn) {
     // Advance within the section while there are (or may still be) more pages: either a built
     // page ahead, or the section is still building (windowed), in which case more pages exist
@@ -1726,6 +1849,12 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       LOG_DBG("ERS", "Page render: prewarm=%lums bw_render=%lums display=%lums total=%lums", tPrewarm - t0,
               tBwRender - tPrewarm, tDisplay - tBwRender, tEnd - t0);
     }
+  }
+
+  // Start timing the page the reader is now looking at. Stamped after the refresh
+  // completes so render time is not counted as reading time.
+  if (SETTINGS.shouldTrackReadingStats()) {
+    pageShownAtMs = millis();
   }
 }
 

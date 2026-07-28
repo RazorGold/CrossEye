@@ -257,6 +257,12 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t removeReadBooksFromRecents = 0;
   // Move epub to /Read/ folder on SD card when finished (0 = disabled, 1 = enabled)
   uint8_t moveFinishedToReadFolder = 0;
+  // Accumulate per-book and global reading statistics (0 = disabled, 1 = enabled)
+  uint8_t trackReadingStats = 1;
+  // Page dwell longer than this counts as idle and is discarded rather than added to
+  // reading time, so leaving the reader open does not inflate totals. Stored in 10s
+  // units to fit a uint8_t; see readingIdleTimeThresholdSecondsForUnits().
+  uint8_t readingIdleTimeThresholdUnits = 30;
   // Short press Back goes to file browser instead of home (0 = disabled, 1 = enabled)
   uint8_t backShortToFileBrowser = 0;
   // Image rendering mode in EPUB reader
@@ -273,6 +279,20 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   static constexpr uint8_t MIN_SLEEP_TIMEOUT_MINUTES = 1;
   static constexpr uint8_t SLEEP_TIMEOUT_NEVER_MINUTES = 31;
   static constexpr uint8_t MAX_SLEEP_TIMEOUT_MINUTES = SLEEP_TIMEOUT_NEVER_MINUTES;
+
+  // Reading statistics idle threshold. Stored in 10s units so the persisted value fits
+  // a uint8_t; the 30s..10min range maps to 3..60 units.
+  static constexpr uint16_t MIN_READING_IDLE_TIME_THRESHOLD_SECONDS = 30;
+  static constexpr uint16_t MAX_READING_IDLE_TIME_THRESHOLD_SECONDS = 10 * 60;
+  static constexpr uint8_t READING_IDLE_TIME_THRESHOLD_UNIT_SECONDS = 10;
+  static constexpr uint8_t MIN_READING_IDLE_TIME_THRESHOLD_UNITS =
+      MIN_READING_IDLE_TIME_THRESHOLD_SECONDS / READING_IDLE_TIME_THRESHOLD_UNIT_SECONDS;
+  static constexpr uint8_t MAX_READING_IDLE_TIME_THRESHOLD_UNITS =
+      MAX_READING_IDLE_TIME_THRESHOLD_SECONDS / READING_IDLE_TIME_THRESHOLD_UNIT_SECONDS;
+
+  bool shouldTrackReadingStats() const { return trackReadingStats != 0; }
+  static uint16_t readingIdleTimeThresholdSecondsForUnits(uint8_t units);
+  uint16_t getReadingIdleTimeThresholdSeconds() const;
 
   // Callback to resolve SD card font IDs. Set by SdCardFontSystem::begin().
   // Returns font ID or 0 if not found.
