@@ -23,7 +23,9 @@ namespace {
 // v33: Focus Reading skips words shorter than FOCUS_READING_MIN_WORD_CHARS. The
 //      render spec's focusReadingEnabled flag is unchanged by this, so cached
 //      word styles from v32 would keep the old every-word bolding.
-constexpr uint8_t SECTION_FILE_VERSION = 33;
+// v34: FOCUS_READING_MIN_WORD_CHARS 4 -> 3, so three-letter words are styled
+//      again. Same reasoning as v33: the spec flag cannot express the change.
+constexpr uint8_t SECTION_FILE_VERSION = 34;
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /
 // crash-interrupted .bin therefore carries version 0, which loadSectionFile rejects

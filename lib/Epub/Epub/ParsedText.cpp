@@ -372,10 +372,11 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
         charCount++;
       }
 
-      // Short function words (a, is, of, in, the, and) carry little meaning, and
-      // bolding them adds visual noise without giving the eye a useful landing
-      // point. Below this length the word renders plain, like punctuation does.
-      constexpr size_t FOCUS_READING_MIN_WORD_CHARS = 4;
+      // One- and two-letter words (a, is, of, in, to) get no bold prefix: at that
+      // length the prefix is most of the word, so it reads as noise rather than a
+      // landing point. Three letters and up are styled normally -- note that puts
+      // the/and/was/for back in scope, which is most of a page of English prose.
+      constexpr size_t FOCUS_READING_MIN_WORD_CHARS = 3;
       if (charCount < FOCUS_READING_MIN_WORD_CHARS) {
         words.emplace_back(segment);
         wordStyles.push_back(baseStyle);
