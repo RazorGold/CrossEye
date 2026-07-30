@@ -67,9 +67,25 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
 #endif
 
 #if !SOC_PM_SUPPORT_EXT1_WAKEUP
-  if (gpio.isXteinkDevice() && !gpio.deviceIsX3()) {
-    // X4 GPIO13 is connected to the battery latch MOSFET. Keeping it low powers
-    // the MCU off on battery, while the SDK wake source still handles USB power.
+  if (gpio.isXteinkDevice()) {
+    // GPIO13 is connected to the battery latch MOSFET on BOTH X4 and X3 — the two
+    // share a pinout and differ only in panel controller and size (BoardConfig.h,
+    // XTEINK_X3). Keeping it low powers the MCU off on battery, while the SDK wake
+    // source still handles USB power.
+    //
+    // This deliberately drops the `&& !gpio.deviceIsX3()` guard that upstream
+    // introduced in f42fab1c (PR #2481, the touch/freeink-sdk migration). That guard
+    // is undiscussed collateral: the PR describes touch navigation and RTOS yielding,
+    // links no issue, and no review comment mentions power. Its effect is that "off"
+    // on an X3 stops cutting power at the latch and becomes an ordinary C3 deep sleep
+    // with the SD card, DS3231 and BQ27220 still powered — upstream #2782, where the
+    // reporter loses ~6%/night powered off and confirms 1.4.1 was fine.
+    //
+    // Latching on X3 is what 1.4.1 shipped (unconditional, alongside working DS3231
+    // support in HalClock), and what CrossInk still does today, so the RTC survives it.
+    // Upstream #2774 fixed only the device *detection* so misdetected X4s latch again;
+    // a correctly-detected X3 still never latches, which is why that fix did not help
+    // X3 reporters.
     constexpr gpio_num_t GPIO_SPIWP = GPIO_NUM_13;
     gpio_set_direction(GPIO_SPIWP, GPIO_MODE_OUTPUT);
     gpio_set_level(GPIO_SPIWP, 0);
