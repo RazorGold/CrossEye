@@ -2,6 +2,8 @@
 
 #include <HalClock.h>
 
+#include <cstdio>
+
 #include "CrossPointSettings.h"
 
 namespace {

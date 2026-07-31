@@ -21,6 +21,9 @@ struct BookReadingStats {
   std::array<uint32_t, READING_TIME_BUCKET_COUNT> timeOfDaySeconds{};
   std::array<uint32_t, READING_DAY_OF_WEEK_COUNT> dayOfWeekSeconds{};
 
+  static constexpr uint8_t CURRENT_FILE_VERSION = 5;
+  static constexpr int CURRENT_FILE_SIZE = 73;
+
   // Loads stats from cachePath/stats_v5.bin, with fallback reads from the
   // previous versioned filename and legacy cachePath/stats.bin. Returns
   // default-constructed stats if no compatible file exists.
