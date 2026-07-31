@@ -27,6 +27,13 @@ class EpubReaderActivity final : public Activity {
   uint32_t sessionReadingSeconds = 0;
   // millis() when the current page was shown; 0 means "not currently timing".
   unsigned long pageShownAtMs = 0UL;
+  // Words on the page currently being timed, counted at render time by the shared
+  // token rule. Feeds the Words/Min histogram sample taken at the page turn.
+  uint16_t currentPageWordCount = 0;
+  // Identity of the page currentPageWordCount describes, so a re-render of the
+  // same page does not recount it. -1 means nothing counted yet.
+  int countedSpineIndex = -1;
+  int countedPageNumber = -1;
 
   // Elapsed seconds on the current page, or false when the interval should not count
   // (stats disabled, no page timing active, or the dwell exceeded the idle threshold).

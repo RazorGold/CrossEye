@@ -456,6 +456,42 @@ at save time along with `idleThresholdSeconds`. Bump it whenever word
 tokenization changes, so incompatible histograms are never ranked against each
 other.
 
+### Word token rule, version 1
+
+`WordTokenRule.{h,cpp}` holds the one rule that everything counting words must
+agree on: the firmware's page counter, the dictionary's word selection, and the
+host backfill script. Counting happens over the **laid-out page**, not the raw
+XHTML, so images, chapter-end partials and hyphenation splits are already
+resolved.
+
+A token counts as a word when it carries an ASCII alphanumeric, or a non-ASCII
+codepoint that is not punctuation. Excluded:
+
+- General Punctuation (`U+2000`–`U+206F`) — dashes, bullets and quotes appear as
+  standalone tokens;
+- CJK and fullwidth punctuation (`U+3000`–`U+303F`, `U+FE30`–`U+FE4F`, and the
+  punctuation subranges of `U+FF01`–`U+FF60`);
+- the replacement glyph `U+FFFD`, so a damaged block cannot inflate a count;
+- **hyphenation prefixes**, i.e. tokens ending in `-`. `ParsedText` appends a
+  literal hyphen to the prefix when it splits a word across a line break, so the
+  remainder token carries the word. This also gets words broken at an existing
+  hyphen right: they add no character, but the prefix still ends in `-`, so the
+  two halves count as the one word they were.
+
+**CJK is counted in characters, not tokens.** `ParsedText` splits a CJK run into
+one token per character, so naive token counting reports a Chinese or Japanese
+book as several times more words than it has. CJK word characters are tallied
+separately and divided by `CJK_CHARS_PER_WORD = 2`, rounded to nearest, once per
+page. That divisor is a documented convention rather than a measurement —
+Chinese runs closer to 1.5 characters per word and Japanese closer to 2 — but it
+is stable, versioned, and reachable by the script without reimplementing the
+tokenizer.
+
+The count is independent of Focus Reading: `TextBlock` merges the bold prefix and
+its suffix back into one word entry carrying a `focusBoundary`, so `wordCount()`
+does not move with the setting. A word count that changed with a render setting
+would defeat the point of Words/Min.
+
 ### Durability and downgrades
 
 Both files are replaced by writing a temp file, flushing it, closing it with the

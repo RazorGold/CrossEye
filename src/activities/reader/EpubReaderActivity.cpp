@@ -34,6 +34,7 @@
 #include "QrDisplayActivity.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
+#include "WordTokenRule.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookmarkUtil.h"
@@ -45,6 +46,27 @@ namespace {
 constexpr int PAGE_TURN_RATES[] = {1, 1, 3, 6, 12};
 constexpr size_t initialBookmarkCacheCapacity = 16;
 constexpr float bookmarkProgressEpsilon = 0.0001f;
+
+// Words on the laid-out page, using the shared token rule. Counting here rather
+// than from the raw XHTML is what makes the figure describe what was actually on
+// screen: images, chapter-end partials and hyphenation splits are all already
+// resolved by the layout. Independent of Focus Reading, because TextBlock merges
+// the bold prefix and its suffix back into one word entry carrying a
+// focusBoundary — a word count that moved with a render setting would defeat the
+// point of Words/Min.
+uint16_t countWordsOnPage(const Page& page) {
+  PageWordCount count;
+  for (const auto& element : page.elements) {
+    if (element->getTag() != TAG_PageLine) continue;
+    const auto* line = static_cast<const PageLine*>(element.get());
+    const auto& block = line->getBlock();
+    if (!block || !block->valid()) continue;
+    for (uint16_t i = 0; i < block->wordCount(); i++) {
+      count.addToken(block->wordText(i));
+    }
+  }
+  return count.total();
+}
 
 int clampPercent(int percent) {
   if (percent < 0) {
@@ -1854,6 +1876,18 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   // Start timing the page the reader is now looking at. Stamped after the refresh
   // completes so render time is not counted as reading time.
   if (SETTINGS.shouldTrackReadingStats()) {
+    // Count the words while the page is still alive, which guarantees the count
+    // describes the page being timed. Only on a genuine page change: a re-render
+    // of the same page (orientation, settings, a returning activity) must not
+    // disturb the sample, which from Phase 4 also carries an accumulated dwell.
+    const int shownPageNumber = section ? section->currentPage : -1;
+    if (currentSpineIndex != countedSpineIndex || shownPageNumber != countedPageNumber) {
+      currentPageWordCount = countWordsOnPage(*page);
+      countedSpineIndex = currentSpineIndex;
+      countedPageNumber = shownPageNumber;
+      LOG_DBG("ERS", "Page words: %u (spine %d, page %d)", static_cast<unsigned>(currentPageWordCount),
+              currentSpineIndex, shownPageNumber);
+    }
     pageShownAtMs = millis();
   }
 }
