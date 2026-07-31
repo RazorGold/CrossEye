@@ -6,34 +6,17 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-#include <cctype>
 #include <climits>
 #include <cstdlib>
 
 #include "CrossPointSettings.h"
 #include "DictionaryDefinitionActivity.h"
+#include "WordTokenRule.h"
 #include "components/UITheme.h"
 
 namespace {
 
 constexpr unsigned long POPUP_DURATION_MS = 1500;
-
-// A token is selectable when it has an ASCII alphanumeric or a non-ASCII
-// codepoint outside U+2000-U+206F (dashes, bullets and other General
-// Punctuation that appear as standalone tokens are not words).
-bool isSelectableToken(const char* text) {
-  for (const uint8_t* p = reinterpret_cast<const uint8_t*>(text); *p != 0; p++) {
-    if (*p < 0x80) {
-      if (std::isalnum(*p)) return true;
-    } else if (*p == 0xE2 && (p[1] == 0x80 || p[1] == 0x81)) {
-      if (p[2] == 0) break;  // truncated sequence: skipping would step past the NUL
-      p += 2;                // skip the 3-byte General Punctuation codepoint
-    } else {
-      return true;
-    }
-  }
-  return false;
-}
 
 void indexBuildYield(void*) { vTaskDelay(1); }
 
@@ -80,7 +63,7 @@ void DictionaryWordSelectActivity::extractWords() {
     bool rowHasWords = false;
     for (uint16_t i = 0; i < block->wordCount(); i++) {
       const char* text = block->wordText(i);
-      if (!isSelectableToken(text)) continue;
+      if (!isWordToken(text)) continue;
 
       WordBox box;
       box.x = static_cast<int16_t>(line->xPos + block->wordXpos(i) + marginLeft);

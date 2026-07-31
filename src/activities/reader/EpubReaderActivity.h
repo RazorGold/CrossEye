@@ -11,6 +11,7 @@
 #include "EpubReaderMenuActivity.h"
 #include "GlobalReadingStats.h"
 #include "ProgressMapper.h"
+#include "WpmHistogram.h"
 #include "activities/Activity.h"
 
 class EpubReaderActivity final : public Activity {
@@ -22,17 +23,49 @@ class EpubReaderActivity final : public Activity {
   // time-of-day / day-of-week buckets. Only valid on devices with an RTC (X3).
   ReadingStatsDateTime sessionStartLocalDateTime;
   bool hasSessionStartLocalDateTime = false;
-  // Active reading seconds this session. Page dwells beyond the idle threshold are
-  // rejected before reaching this, so leaving the reader open does not inflate it.
-  uint32_t sessionReadingSeconds = 0;
+  // Active reading milliseconds this session. Page dwells beyond the idle threshold
+  // are rejected before reaching this, so leaving the reader open does not inflate
+  // it. Milliseconds, truncated to seconds once at session commit: flooring per page
+  // instead discards ~0.5 s of every page, which on a 17-second X3 page is ~3% of
+  // reading time in one direction, and the loss scales with screen size.
+  uint32_t sessionReadingMs = 0;
+  // Forward page turns this session, committed with the session's time rather than
+  // immediately, so a session too short to add reading time adds no pages either.
+  uint32_t sessionPagesTurned = 0;
+  // This session's Words/Min samples, merged into both files under the same gate.
+  WpmSessionBins sessionBins;
   // millis() when the current page was shown; 0 means "not currently timing".
   unsigned long pageShownAtMs = 0UL;
+  // Dwell accumulated on the current page across fragments. Opening the stats screen
+  // or closing the book commits a fragment of a page's dwell; the page becomes one
+  // histogram sample only at a genuine forward turn, using the total.
+  uint32_t currentPageDwellMs = 0;
+  // Set when a fragment of the current page's dwell was rejected as idle. The
+  // accumulated dwell then no longer describes the time spent reading the page, so
+  // it must not become a sample — the seconds already admitted still count.
+  bool currentPageDwellIncomplete = false;
+  // Words on the page currently being timed, counted at render time by the shared
+  // token rule. Feeds the Words/Min histogram sample taken at the page turn.
+  uint16_t currentPageWordCount = 0;
+  // Identity of the page currentPageWordCount describes, so a re-render of the
+  // same page does not recount it or reset its dwell. -1 means nothing counted yet.
+  int countedSpineIndex = -1;
+  int countedPageNumber = -1;
 
-  // Elapsed seconds on the current page, or false when the interval should not count
-  // (stats disabled, no page timing active, or the dwell exceeded the idle threshold).
-  bool currentPageReadingSecondsForStats(uint32_t& seconds, const char* source) const;
-  // Fold the current page's dwell into sessionReadingSeconds and stop timing.
-  void recordCurrentPageReadingTime(const char* source);
+  // Elapsed milliseconds on the current page, or false when the interval should not
+  // count (stats disabled, no page timing active, or the dwell exceeded the idle
+  // threshold).
+  bool currentPageReadingMsForStats(uint32_t& elapsedMs, const char* source);
+  // Fold whatever dwell has accrued into the session and the page accumulator, then
+  // stop timing. Time only: no page and no histogram sample, because two of the
+  // three call sites commit a fragment of a page rather than a whole one.
+  void foldCurrentPageDwell(const char* source);
+  // The whole-page decision at a genuine forward turn: fold the last fragment, then
+  // admit the page's time, the page itself and its histogram sample together.
+  void commitPageReadInterval();
+  // Drop the current page's dwell without committing anything, for navigation that
+  // replaces the page without it having been read to its end.
+  void discardCurrentPageDwell();
 
   std::shared_ptr<Epub> epub;
   std::unique_ptr<Section> section = nullptr;

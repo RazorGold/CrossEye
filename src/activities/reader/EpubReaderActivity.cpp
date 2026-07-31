@@ -34,6 +34,7 @@
 #include "QrDisplayActivity.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
+#include "WordTokenRule.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookmarkUtil.h"
@@ -45,6 +46,27 @@ namespace {
 constexpr int PAGE_TURN_RATES[] = {1, 1, 3, 6, 12};
 constexpr size_t initialBookmarkCacheCapacity = 16;
 constexpr float bookmarkProgressEpsilon = 0.0001f;
+
+// Words on the laid-out page, using the shared token rule. Counting here rather
+// than from the raw XHTML is what makes the figure describe what was actually on
+// screen: images, chapter-end partials and hyphenation splits are all already
+// resolved by the layout. Independent of Focus Reading, because TextBlock merges
+// the bold prefix and its suffix back into one word entry carrying a
+// focusBoundary — a word count that moved with a render setting would defeat the
+// point of Words/Min.
+uint16_t countWordsOnPage(const Page& page) {
+  PageWordCount count;
+  for (const auto& element : page.elements) {
+    if (element->getTag() != TAG_PageLine) continue;
+    const auto* line = static_cast<const PageLine*>(element.get());
+    const auto& block = line->getBlock();
+    if (!block || !block->valid()) continue;
+    for (uint16_t i = 0; i < block->wordCount(); i++) {
+      count.addToken(block->wordText(i));
+    }
+  }
+  return count.total();
+}
 
 int clampPercent(int percent) {
   if (percent < 0) {
@@ -175,7 +197,9 @@ void EpubReaderActivity::onEnter() {
   if (SETTINGS.shouldTrackReadingStats()) {
     stats = BookReadingStats::load(epub->getCachePath());
     globalStats = GlobalReadingStats::load();
-    sessionReadingSeconds = 0;
+    sessionReadingMs = 0;
+    sessionPagesTurned = 0;
+    sessionBins.clear();
     hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
   }
 
@@ -235,22 +259,34 @@ void EpubReaderActivity::onExit() {
   APP_STATE.saveToFile();
 
   if (SETTINGS.shouldTrackReadingStats()) {
-    recordCurrentPageReadingTime("reader_exit");
+    // A fragment: whatever dwell accrued on the page the book was closed on. Its
+    // time counts, but it never becomes a page turn or a histogram sample.
+    foldCurrentPageDwell("reader_exit");
 
     // Commit the session. Page intervals longer than the idle threshold were already
-    // rejected before reaching sessionReadingSeconds. Sessions under 1 minute don't
+    // rejected before reaching sessionReadingMs. Sessions under 1 minute don't
     // count as a session; under 10 seconds they don't add reading time at all.
-    const uint32_t elapsedSecs = sessionReadingSeconds;
+    //
+    // Truncated to seconds exactly once, here. Flooring each page's dwell instead
+    // discarded ~0.5 s per page — ~16 s of a 9-minute session on an X3, and the
+    // loss scaled with screen size, which made the shared reading-time figure
+    // depend on which device you read it on.
+    const uint32_t elapsedSecs = sessionReadingMs / 1000UL;
     if (elapsedSecs >= 60) {
       if (stats.sessionCount < UINT16_MAX) stats.sessionCount++;
       globalStats.totalSessions++;
     }
     if (elapsedSecs >= 10) {
-      stats.totalReadingSeconds =
-          stats.totalReadingSeconds > UINT32_MAX - elapsedSecs ? UINT32_MAX : stats.totalReadingSeconds + elapsedSecs;
-      globalStats.totalReadingSeconds = globalStats.totalReadingSeconds > UINT32_MAX - elapsedSecs
-                                            ? UINT32_MAX
-                                            : globalStats.totalReadingSeconds + elapsedSecs;
+      stats.totalReadingSeconds = addSaturated<uint32_t>(stats.totalReadingSeconds, elapsedSecs);
+      globalStats.totalReadingSeconds = addSaturated<uint32_t>(globalStats.totalReadingSeconds, elapsedSecs);
+      // Pages and samples ride the same gate as the time they were measured against.
+      // They used to be committed the moment the page turned, so a session too short
+      // to add reading time still added pages — the asymmetry that let the page count
+      // and the reading time describe different sets of pages.
+      stats.totalPagesTurned = addSaturated<uint32_t>(stats.totalPagesTurned, sessionPagesTurned);
+      globalStats.totalPagesTurned = addSaturated<uint32_t>(globalStats.totalPagesTurned, sessionPagesTurned);
+      sessionBins.mergeInto(stats);
+      sessionBins.mergeInto(globalStats);
       if (hasSessionStartLocalDateTime) {
         stats.recordReadingSpan(sessionStartLocalDateTime, elapsedSecs);
         globalStats.recordReadingSpan(sessionStartLocalDateTime, elapsedSecs);
@@ -927,8 +963,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     case EpubReaderMenuActivity::MenuAction::READING_STATS: {
       if (!epub) break;
       // Fold the current page's dwell in first, so the screen reflects time read up to
-      // now rather than up to the last page turn.
-      recordCurrentPageReadingTime("open_stats");
+      // now rather than up to the last page turn. A fragment: it keeps accumulating
+      // against this page, and only becomes a sample if the page is later turned.
+      foldCurrentPageDwell("open_stats");
 
       float bookProgress = 0.0f;
       if (epub->getBookSize() > 0 && section && section->estimatedTotalPages() > 0) {
@@ -937,12 +974,15 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
         bookProgress = epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
       }
 
-      // Session time is not yet folded into stats (that happens in onExit), so pass a
-      // copy with it applied to avoid the screen under-reporting the current session.
+      // The session is not folded into stats until onExit, so pass a copy with it
+      // applied to avoid the screen under-reporting the current session. Pages and
+      // samples come along with the time: showing this session's reading time
+      // against last session's page count would make the two disagree on screen.
       BookReadingStats displayStats = stats;
-      displayStats.totalReadingSeconds = displayStats.totalReadingSeconds > UINT32_MAX - sessionReadingSeconds
-                                             ? UINT32_MAX
-                                             : displayStats.totalReadingSeconds + sessionReadingSeconds;
+      displayStats.totalReadingSeconds =
+          addSaturated<uint32_t>(displayStats.totalReadingSeconds, sessionReadingMs / 1000UL);
+      displayStats.totalPagesTurned = addSaturated<uint32_t>(displayStats.totalPagesTurned, sessionPagesTurned);
+      sessionBins.mergeInto(displayStats);
 
       // hasEstimatedTimeLeft is false: time-left estimation is a CrossInk reader
       // feature that was deliberately not ported.
@@ -1067,50 +1107,78 @@ void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption
   }
 }
 
-bool EpubReaderActivity::currentPageReadingSecondsForStats(uint32_t& seconds, const char* source) const {
-  seconds = 0;
+bool EpubReaderActivity::currentPageReadingMsForStats(uint32_t& elapsedMs, const char* source) {
+  elapsedMs = 0;
   if (!SETTINGS.shouldTrackReadingStats() || pageShownAtMs == 0UL) {
     return false;
   }
 
-  const unsigned long elapsedMs = millis() - pageShownAtMs;
-  const uint32_t elapsedSeconds = static_cast<uint32_t>(elapsedMs / 1000UL);
-  if (elapsedSeconds == 0) {
-    return false;
-  }
+  const uint32_t measuredMs = static_cast<uint32_t>(millis() - pageShownAtMs);
 
   // A dwell longer than the threshold means the reader was left open rather than read,
-  // so the interval is discarded instead of inflating reading time.
+  // so the interval is discarded instead of inflating reading time. Compared in whole
+  // seconds so the user-facing setting keeps its exact meaning.
   const uint32_t thresholdSeconds = SETTINGS.getReadingIdleTimeThresholdSeconds();
-  if (elapsedSeconds > thresholdSeconds) {
+  if (measuredMs / 1000UL > thresholdSeconds) {
     LOG_DBG("ERS", "Reading time interval rejected as idle: source=%s seconds=%lu threshold=%lu",
-            source ? source : "unknown", static_cast<unsigned long>(elapsedSeconds),
+            source ? source : "unknown", static_cast<unsigned long>(measuredMs / 1000UL),
             static_cast<unsigned long>(thresholdSeconds));
+    // The page's accumulated dwell no longer describes time spent reading it, so it
+    // must not become a histogram sample. The seconds already admitted still stand.
+    currentPageDwellIncomplete = true;
     return false;
   }
 
-  seconds = elapsedSeconds;
+  elapsedMs = measuredMs;
   return true;
 }
 
-void EpubReaderActivity::recordCurrentPageReadingTime(const char* source) {
-  uint32_t seconds = 0;
-  if (currentPageReadingSecondsForStats(seconds, source)) {
-    sessionReadingSeconds = sessionReadingSeconds > UINT32_MAX - seconds ? UINT32_MAX : sessionReadingSeconds + seconds;
-    stats.recordForwardPageRead(seconds);
+void EpubReaderActivity::foldCurrentPageDwell(const char* source) {
+  uint32_t elapsedMs = 0;
+  if (currentPageReadingMsForStats(elapsedMs, source)) {
+    sessionReadingMs = addSaturated<uint32_t>(sessionReadingMs, elapsedMs);
+    currentPageDwellMs = addSaturated<uint32_t>(currentPageDwellMs, elapsedMs);
   }
   pageShownAtMs = 0UL;
+}
+
+void EpubReaderActivity::discardCurrentPageDwell() {
+  pageShownAtMs = 0UL;
+  currentPageDwellMs = 0;
+  currentPageDwellIncomplete = false;
+}
+
+void EpubReaderActivity::commitPageReadInterval() {
+  foldCurrentPageDwell("page_turn");
+
+  const uint32_t dwellMs = currentPageDwellMs;
+  const bool incomplete = currentPageDwellIncomplete;
+  currentPageDwellMs = 0;
+  currentPageDwellIncomplete = false;
+
+  // B: one decision for time, pages and words, gated by the idle threshold alone.
+  // A page whose entire dwell was rejected as idle contributes no page either —
+  // filtering the time while keeping the page would discard the denominator and
+  // keep the contaminated numerator.
+  if (dwellMs == 0) return;
+  if (sessionPagesTurned < UINT32_MAX) sessionPagesTurned++;
+
+  // A: bin admission only, and never on a dwell that was interrupted.
+  if (incomplete) return;
+  // Not logged per sample: the histogram is the distribution, persisted on the
+  // card, so scripts/backfill_word_stats.py --dump can read the shape back at any
+  // time without a tethered serial capture.
+  sessionBins.addSample(dwellMs, currentPageWordCount);
 }
 
 void EpubReaderActivity::pageTurn(bool isForwardTurn) {
   // Fold the outgoing page's dwell into the session before the page changes. In-RAM
   // only -- stats are written to SD in onExit(), never here.
   if (isForwardTurn && SETTINGS.shouldTrackReadingStats()) {
-    recordCurrentPageReadingTime("page_turn");
-    if (stats.totalPagesTurned < UINT32_MAX) stats.totalPagesTurned++;
-    if (globalStats.totalPagesTurned < UINT32_MAX) globalStats.totalPagesTurned++;
+    commitPageReadInterval();
   } else {
-    pageShownAtMs = 0UL;
+    // A backward turn leaves the page without having read it to its end.
+    discardCurrentPageDwell();
   }
 
   if (isForwardTurn) {
@@ -1854,6 +1922,25 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   // Start timing the page the reader is now looking at. Stamped after the refresh
   // completes so render time is not counted as reading time.
   if (SETTINGS.shouldTrackReadingStats()) {
+    // Count the words while the page is still alive, which guarantees the count
+    // describes the page being timed. Only on a genuine page change: a re-render
+    // of the same page (orientation, settings, a returning activity) must not
+    // disturb the sample, which from Phase 4 also carries an accumulated dwell.
+    const int shownPageNumber = section ? section->currentPage : -1;
+    if (currentSpineIndex != countedSpineIndex || shownPageNumber != countedPageNumber) {
+      // A different page is on screen. A forward turn has already consumed the old
+      // page's dwell; anything still here arrived by navigation that replaced the
+      // page without it being read to its end — TOC, percent jump, bookmark, chapter
+      // nav, footnote return. Clearing here covers every such path at once, instead
+      // of depending on each navigation site remembering to.
+      currentPageDwellMs = 0;
+      currentPageDwellIncomplete = false;
+      currentPageWordCount = countWordsOnPage(*page);
+      countedSpineIndex = currentSpineIndex;
+      countedPageNumber = shownPageNumber;
+      LOG_DBG("ERS", "Page words: %u (spine %d, page %d)", static_cast<unsigned>(currentPageWordCount),
+              currentSpineIndex, shownPageNumber);
+    }
     pageShownAtMs = millis();
   }
 }
