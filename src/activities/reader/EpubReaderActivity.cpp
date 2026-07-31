@@ -17,11 +17,11 @@
 #include <limits>
 
 #include "../../util/BookmarkFile.h"
+#include "BookStatsActivity.h"
 #include "BookmarkEntry.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "DictionaryWordSelectActivity.h"
-#include "BookStatsActivity.h"
 #include "EpubReaderBookmarksActivity.h"
 #include "EpubReaderChapterSelectionActivity.h"
 #include "EpubReaderFootnotesActivity.h"
@@ -946,18 +946,18 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
 
       // hasEstimatedTimeLeft is false: time-left estimation is a CrossInk reader
       // feature that was deliberately not ported.
-      startActivityForResult(std::make_unique<BookStatsActivity>(renderer, mappedInput, epub->getTitle(),
-                                                                 epub->getCachePath(), displayStats, bookProgress,
-                                                                 false, 0, globalStats),
-                             [this](const ActivityResult& result) {
-                               // Stats screen edits (mark finished, reset, date changes) are written
-                               // straight to disk, so reload rather than keeping the stale in-RAM copy.
-                               if (const auto* statsResult = std::get_if<ReadingStatsResult>(&result.data);
-                                   statsResult && statsResult->changed && epub) {
-                                 stats = BookReadingStats::load(epub->getCachePath());
-                                 globalStats = GlobalReadingStats::load();
-                               }
-                             });
+      startActivityForResult(
+          std::make_unique<BookStatsActivity>(renderer, mappedInput, epub->getTitle(), epub->getCachePath(),
+                                              displayStats, bookProgress, false, 0, globalStats),
+          [this](const ActivityResult& result) {
+            // Stats screen edits (mark finished, reset, date changes) are written
+            // straight to disk, so reload rather than keeping the stale in-RAM copy.
+            if (const auto* statsResult = std::get_if<ReadingStatsResult>(&result.data);
+                statsResult && statsResult->changed && epub) {
+              stats = BookReadingStats::load(epub->getCachePath());
+              globalStats = GlobalReadingStats::load();
+            }
+          });
       break;
     }
   }
