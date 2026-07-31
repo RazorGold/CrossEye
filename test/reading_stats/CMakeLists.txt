@@ -34,3 +34,19 @@ target_link_libraries(WordTokenRuleTest PRIVATE
 )
 
 gtest_discover_tests(WordTokenRuleTest)
+
+add_executable(WpmHistogramTest
+  WpmHistogramTest.cpp
+  ${REPO_ROOT}/src/activities/reader/WpmHistogram.cpp
+)
+
+target_include_directories(WpmHistogramTest PRIVATE
+  ${REPO_ROOT}/src/activities/reader
+)
+
+target_link_libraries(WpmHistogramTest PRIVATE
+  crosspoint_test_common
+  GTest::gtest_main
+)
+
+gtest_discover_tests(WpmHistogramTest)

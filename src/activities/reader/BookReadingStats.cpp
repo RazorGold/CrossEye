@@ -12,7 +12,6 @@ namespace {
 // ReadingStatsSerialization.cpp alongside the parser that reads them.
 static constexpr uint8_t STATS_FILE_VERSION = BookReadingStats::CURRENT_FILE_VERSION;
 static constexpr int STATS_FILE_SIZE = BookReadingStats::CURRENT_FILE_SIZE;
-static constexpr uint16_t MAX_PACE_SAMPLE_COUNT = 1000;
 static constexpr uint8_t PREVIOUS_VERSIONED_STATS_FILE_VERSION = STATS_FILE_VERSION - 1;
 static constexpr const char* LEGACY_STATS_FILE_NAME = "stats.bin";
 
@@ -62,30 +61,6 @@ BookReadingStats BookReadingStats::load(const std::string& cachePath) {
     return BookReadingStats{};
   }
   return stats;
-}
-
-void BookReadingStats::recordForwardPageRead(uint32_t seconds) {
-  if (seconds == 0) {
-    return;
-  }
-  if (seconds > UINT16_MAX) {
-    seconds = UINT16_MAX;
-  }
-
-  const uint16_t sample = static_cast<uint16_t>(seconds);
-  if (paceSampleCount == 0 || avgSecondsPerForwardPage == 0) {
-    avgSecondsPerForwardPage = sample;
-    paceSampleCount = 1;
-    return;
-  }
-
-  const uint16_t weight = paceSampleCount < MAX_PACE_SAMPLE_COUNT ? paceSampleCount : MAX_PACE_SAMPLE_COUNT;
-  const uint32_t nextAverage =
-      (static_cast<uint32_t>(avgSecondsPerForwardPage) * weight + sample) / (static_cast<uint32_t>(weight) + 1U);
-  avgSecondsPerForwardPage = static_cast<uint16_t>(nextAverage);
-  if (paceSampleCount < MAX_PACE_SAMPLE_COUNT) {
-    paceSampleCount++;
-  }
 }
 
 void BookReadingStats::recordReadingSpan(const ReadingStatsDateTime& localStart, const uint32_t seconds) {
