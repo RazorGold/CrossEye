@@ -11,8 +11,6 @@ struct BookReadingStats {
   uint32_t totalReadingSeconds = 0;       // Accumulated reading time in seconds
   uint32_t totalPagesTurned = 0;          // Total forward page turns after the dwell threshold
   bool isCompleted = false;               // Whether the user manually marked this book as finished
-  uint16_t avgSecondsPerForwardPage = 0;  // Reserved: no longer maintained, written 0
-  uint16_t paceSampleCount = 0;           // Reserved: no longer maintained, written 0
   uint32_t estimatedTimeLeftSeconds = 0;  // Last live reader book time-left estimate; 0 means unavailable
   bool startDateManual = false;           // Permanent user override for the reading start date
   bool finishedDateManual = false;        // Permanent user override for the finished date

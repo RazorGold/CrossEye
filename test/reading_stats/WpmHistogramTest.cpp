@@ -8,6 +8,12 @@
 namespace {
 constexpr uint16_t X3_PAGE_WORDS = 70;
 
+uint32_t totalCount(const WpmSessionBins& bins) {
+  uint32_t total = 0;
+  for (size_t i = 0; i < WPM_BIN_COUNT; ++i) total += bins.count[i];
+  return total;
+}
+
 // Dwell that makes a page of `words` read at exactly `wpm`.
 uint32_t dwellMsFor(const uint16_t words, const uint32_t wpm) {
   return static_cast<uint32_t>(words) * 60000UL / wpm;
@@ -42,7 +48,6 @@ TEST(WpmSample, TypicalPageIsBinnedWithExactSums) {
   EXPECT_EQ(bins.count[4], 1);
   EXPECT_EQ(bins.words[4], 70u);
   EXPECT_EQ(bins.seconds[4], 17u);
-  EXPECT_FALSE(bins.empty());
 }
 
 TEST(WpmSample, PageFlipBurstIsRejectedByTheDwellFloor) {
@@ -52,7 +57,7 @@ TEST(WpmSample, PageFlipBurstIsRejectedByTheDwellFloor) {
   EXPECT_LT(static_cast<uint32_t>(X3_PAGE_WORDS) * 60000UL / 2999UL, MAX_PLAUSIBLE_WPM);
   EXPECT_FALSE(bins.addSample(2999, X3_PAGE_WORDS));
   EXPECT_FALSE(bins.addSample(500, X3_PAGE_WORDS));
-  EXPECT_TRUE(bins.empty());
+  EXPECT_EQ(totalCount(bins), 0u);
 
   // Exactly at the floor is admitted.
   EXPECT_TRUE(bins.addSample(MIN_SAMPLE_DWELL_MS, X3_PAGE_WORDS));
@@ -62,7 +67,7 @@ TEST(WpmSample, RateCeilingOnlyAppliesToPagesWithEnoughWords) {
   WpmSessionBins bins;
   // A dense page read absurdly fast: rejected.
   EXPECT_FALSE(bins.addSample(3000, 200));  // 4000 wpm
-  EXPECT_TRUE(bins.empty());
+  EXPECT_EQ(totalCount(bins), 0u);
 
   // A chapter-end partial with a handful of words has no meaningful rate, so the
   // ceiling does not apply and the sample is kept.
@@ -76,7 +81,7 @@ TEST(WpmSample, RateCeilingOnlyAppliesToPagesWithEnoughWords) {
 TEST(WpmSample, ImagePageIsRealTimeButNotASample) {
   WpmSessionBins bins;
   EXPECT_FALSE(bins.addSample(30000, 0));
-  EXPECT_TRUE(bins.empty());
+  EXPECT_EQ(totalCount(bins), 0u);
 }
 
 TEST(WpmSample, SlowPagesLandInTheLowBinsWhereTheTrimWillFindThem) {
@@ -153,7 +158,7 @@ TEST(WpmSession, ClearResetsEveryArray) {
   WpmSessionBins bins;
   ASSERT_TRUE(bins.addSample(17000, X3_PAGE_WORDS));
   bins.clear();
-  EXPECT_TRUE(bins.empty());
+  EXPECT_EQ(totalCount(bins), 0u);
   for (size_t i = 0; i < WPM_BIN_COUNT; ++i) {
     EXPECT_EQ(bins.count[i], 0);
     EXPECT_EQ(bins.words[i], 0u);

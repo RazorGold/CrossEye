@@ -24,6 +24,12 @@ device's idle threshold, so estimates read 20-30% lower. Every book this script
 touches is therefore marked with the wordsBackfilled flag, which the device shows
 as a leading "~" and a sync server must use to segregate estimates before ranking.
 
+**Per-book only.** The global histogram is never seeded. It has no flags field to
+mark an estimate with, the figure is time-weighted so a seed carrying a whole
+history's worth of seconds would dominate it for months, and it is the number
+most likely to end up on a leaderboard. Global fills in from real reading, which
+takes about one session.
+
 Usage
 -----
     # See what would happen (default -- makes no changes):
@@ -515,23 +521,6 @@ def seed_book_stats(buf: bytes, words_read: int, seconds: int, wpm: int) -> byte
     return bytes(out)
 
 
-def seed_global_stats(buf: bytes, words_read: int, seconds: int, wpm: int) -> bytes:
-    if len(buf) != GLOBAL_STATS_SIZE or buf[0] != GLOBAL_STATS_VERSION:
-        raise ValueError(f"not a v{GLOBAL_STATS_VERSION} global stats file ({len(buf)} bytes)")
-    out = bytearray(buf)
-    for i in range(WPM_BIN_COUNT):
-        write_le32(out, GLOBAL_BIN_COUNT_OFFSET + i * 4, 0)
-        write_le32(out, GLOBAL_BIN_WORDS_OFFSET + i * 4, 0)
-        write_le32(out, GLOBAL_BIN_SECONDS_OFFSET + i * 4, 0)
-    index = wpm_bin_index(wpm)
-    write_le32(out, GLOBAL_BIN_COUNT_OFFSET + index * 4, MIN_WPM_SAMPLES)
-    write_le32(out, GLOBAL_BIN_WORDS_OFFSET + index * 4, words_read)
-    write_le32(out, GLOBAL_BIN_SECONDS_OFFSET + index * 4, seconds)
-    write_le32(out, GLOBAL_STATS_REVISION_OFFSET, read_le32(buf, GLOBAL_STATS_REVISION_OFFSET) + 1)
-    out[GLOBAL_TOKEN_RULE_OFFSET] = TOKEN_RULE_VERSION
-    return bytes(out)
-
-
 def read_progress(path: Path) -> tuple[int, int, int] | None:
     """spineIndex, pageNumber, pageCount -- three uint16 LE."""
     try:
@@ -698,7 +687,23 @@ def process_book(book: Path, sd_root: Path, cache_root: Path, args) -> BookResul
     return result
 
 
-def process_global(cache_root: Path, accepted: list[BookResult], args) -> str:
+def process_global(cache_root: Path, args) -> str:
+    """Reports the global histogram. Never writes to it.
+
+    Global is measurement-only by design. Seeding it would put an estimate into
+    the one figure that is meant to be comparable between people, and because the
+    reported rate is time-weighted, a seed carrying a whole reading history's
+    worth of seconds would dominate that figure for months of real reading.
+
+    Worse, it could not be labelled: the per-book file has a wordsBackfilled flag,
+    the global file has no flags field at all, so a seeded global bin merges with
+    later measured samples and becomes permanently indistinguishable from them.
+    Per-book estimates are flagged, marked on screen and segregable by a server;
+    a global estimate would be none of those things.
+
+    So global fills up from real reading only. It reads "-" until about 25 pages
+    have been read on this firmware, which is one session.
+    """
     path = cache_root / GLOBAL_STATS_NAME
     if not path.is_file():
         return "global: no global_stats.bin"
@@ -719,29 +724,9 @@ def process_global(cache_root: Path, accepted: list[BookResult], args) -> str:
             f"trimmed={_wpm(hist.trimmed_wpm())} seconds={total_seconds} pages={total_pages}"
         )
 
-    if not hist.empty():
-        pure_seed = hist.total_count() <= MIN_WPM_SAMPLES
-        if not (args.force and pure_seed):
-            return "global: skipped, histogram already has data" + ("" if pure_seed else " (measured)")
-
-    words_sum = sum(r.words_read for r in accepted)
-    pages_sum = sum(r.pages for r in accepted)
-    if words_sum == 0 or pages_sum == 0 or total_pages == 0 or total_seconds < 60:
-        return "global: skipped, not enough accepted books to derive a words-per-page ratio"
-
-    # Deliberately a ratio rather than the sum of the per-book estimates: global
-    # counts books that are no longer on the card, so summing would undercount in
-    # a known direction, while words-per-page stays unbiased.
-    global_words = total_pages * words_sum // pages_sum
-    wpm = global_words * 60 // total_seconds
-    if not SANITY_WPM_MIN <= wpm <= SANITY_WPM_MAX:
-        return f"global: skipped, implied {wpm} wpm is outside {SANITY_WPM_MIN}-{SANITY_WPM_MAX}"
-
-    detail = backup_then_write(path, seed_global_stats(raw, global_words, total_seconds, wpm), args.apply)
-    return (
-        f"global: {global_words} words over {total_seconds}s = {wpm} wpm "
-        f"({words_sum}/{pages_sum} words per page x {total_pages} pages); {detail}"
-    )
+    if hist.empty():
+        return "global: not seeded (measurement-only by design); fills in after ~25 pages of reading"
+    return f"global: left alone, {hist.total_count()} measured sample(s), {_wpm(hist.trimmed_wpm())} wpm"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -808,7 +793,7 @@ def main(argv: list[str] | None = None) -> int:
 
     accepted = [r for r in results if r.status == "ok"]
     print()
-    print(process_global(cache_root, accepted, args))
+    print(process_global(cache_root, args))
     if not args.dump:
         print(f"\n{len(accepted)} book(s) backfilled, {len(results) - len(accepted)} skipped.")
         if not args.apply:
@@ -1002,14 +987,6 @@ class SeedingTests(unittest.TestCase):
         seeded = seed_book_stats(_blank_book_stats(pages=9999), 15000, 3600, 250)
         self.assertEqual(parse_book_stats(seeded).histogram.total_count(), MIN_WPM_SAMPLES)
 
-    def test_global_seed_sets_the_token_rule_version(self):
-        seeded = seed_global_stats(_blank_global_stats(), 500000, 120000, 250)
-        self.assertEqual(seeded[GLOBAL_TOKEN_RULE_OFFSET], TOKEN_RULE_VERSION)
-        self.assertEqual(read_le32(seeded, GLOBAL_STATS_REVISION_OFFSET), 1)
-        hist = read_global_histogram(seeded)
-        self.assertEqual(hist.total_count(), MIN_WPM_SAMPLES)
-        self.assertEqual(hist.trimmed_wpm(), 250)
-
 
 class EndToEndTests(unittest.TestCase):
     def _card(self, tmp: Path, body_words: int = 3000, seconds: int = 720) -> tuple[Path, Path]:
@@ -1033,7 +1010,7 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(main([str(sd_root)]), 0)
             self.assertEqual((cache / STATS_FILE_NAME).read_bytes(), before)
 
-    def test_apply_seeds_the_book_and_the_global_file(self):
+    def test_apply_seeds_the_book_but_never_global(self):
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -1048,8 +1025,10 @@ class EndToEndTests(unittest.TestCase):
             self.assertIn(stats.histogram.trimmed_wpm(), (249, 250))
             self.assertTrue(list((cache).glob("*.bak")))
 
-            global_hist = read_global_histogram((sd_root / CACHE_DIR_NAME / GLOBAL_STATS_NAME).read_bytes())
-            self.assertFalse(global_hist.empty())
+            # Global is never seeded: an estimate there could not be flagged, and
+            # would dominate the shared figure for months of real reading.
+            global_before = _blank_global_stats(seconds=720, pages=100)
+            self.assertEqual((sd_root / CACHE_DIR_NAME / GLOBAL_STATS_NAME).read_bytes(), global_before)
 
     def test_second_run_skips_and_force_redoes(self):
         import tempfile

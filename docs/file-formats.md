@@ -422,10 +422,17 @@ dwell was fragmented (by opening the stats screen, or by closing the book) can
 contribute its words more than once, along with its seconds. Never display or
 transmit it as a total.
 
-`scripts/backfill_word_stats.py` seeds this histogram for books that were read
-before the stat existed, and its `--dump` mode prints the histograms already on a
-card alongside both readings, trimmed and untrimmed. It is stdlib-only and runs
-wherever the card is visible.
+`scripts/backfill_word_stats.py` seeds the **per-book** histogram for books that
+were read before the stat existed, and its `--dump` mode prints the histograms
+already on a card alongside both readings, trimmed and untrimmed. It is
+stdlib-only and runs wherever the card is visible.
+
+The **global** histogram is never seeded, by design. It has no flags field to
+mark an estimate with, so a seeded bin would merge with later measured samples
+and become permanently indistinguishable from them; and because the figure is
+time-weighted, a seed carrying a whole reading history's worth of seconds would
+dominate it for months of real reading. Global therefore holds measured samples
+only, and reads `-` until about one session has been read on this firmware.
 
 ## `global_stats.bin`
 

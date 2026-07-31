@@ -178,7 +178,6 @@ TEST(BookStatsParse, V1RoundTripsCommonFields) {
   EXPECT_EQ(stats.totalReadingSeconds, 4321u);
   EXPECT_EQ(stats.totalPagesTurned, 555u);
   EXPECT_FALSE(stats.isCompleted);
-  EXPECT_EQ(stats.avgSecondsPerForwardPage, 0);
   EXPECT_EQ(stats.estimatedTimeLeftSeconds, 0u);
 }
 
@@ -190,17 +189,18 @@ TEST(BookStatsParse, V2AddsIsCompleted) {
   EXPECT_EQ(stats.sessionCount, 7);
   EXPECT_EQ(stats.totalReadingSeconds, 4321u);
   EXPECT_TRUE(stats.isCompleted);
-  EXPECT_EQ(stats.paceSampleCount, 0);
 }
 
-TEST(BookStatsParse, V3AddsPaceFields) {
+// v3 added the pace fields at [12-15]. They are reserved from v6 on and no longer
+// parsed into the struct at all, so this only pins that a v3 file is still
+// accepted and its live fields still land.
+TEST(BookStatsParse, V3IsStillAccepted) {
   const std::vector<uint8_t> buf = bookV3();
   BookReadingStats stats;
   ASSERT_TRUE(parseStatsBuffer(buf.data(), static_cast<int>(buf.size()), stats));
 
+  EXPECT_EQ(stats.sessionCount, 7);
   EXPECT_TRUE(stats.isCompleted);
-  EXPECT_EQ(stats.avgSecondsPerForwardPage, 42);
-  EXPECT_EQ(stats.paceSampleCount, 19);
   EXPECT_EQ(stats.startDate.year, 0);
 }
 
@@ -210,7 +210,6 @@ TEST(BookStatsParse, V4AddsDatesAndBuckets) {
   ASSERT_TRUE(parseStatsBuffer(buf.data(), static_cast<int>(buf.size()), stats));
 
   EXPECT_EQ(stats.sessionCount, 7);
-  EXPECT_EQ(stats.avgSecondsPerForwardPage, 42);
   expectV4Tail(stats);
   EXPECT_EQ(stats.estimatedTimeLeftSeconds, 0u);
 }
@@ -224,8 +223,6 @@ TEST(BookStatsParse, V5AddsEstimatedTimeLeft) {
   EXPECT_EQ(stats.totalReadingSeconds, 4321u);
   EXPECT_EQ(stats.totalPagesTurned, 555u);
   EXPECT_TRUE(stats.isCompleted);
-  EXPECT_EQ(stats.avgSecondsPerForwardPage, 42);
-  EXPECT_EQ(stats.paceSampleCount, 19);
   expectV4Tail(stats);
   EXPECT_EQ(stats.estimatedTimeLeftSeconds, 9876u);
 }
@@ -280,8 +277,6 @@ TEST(BookStatsParse, SerializeRoundTrips) {
   stats.totalReadingSeconds = 987654;
   stats.totalPagesTurned = 4096;
   stats.isCompleted = true;
-  stats.avgSecondsPerForwardPage = 17;
-  stats.paceSampleCount = 900;
   stats.estimatedTimeLeftSeconds = 3600;
   stats.statsRevision = 1234;
   stats.startDateManual = true;
@@ -309,9 +304,11 @@ TEST(BookStatsParse, SerializeRoundTrips) {
   EXPECT_EQ(parsed.totalReadingSeconds, stats.totalReadingSeconds);
   EXPECT_EQ(parsed.totalPagesTurned, stats.totalPagesTurned);
   EXPECT_EQ(parsed.isCompleted, stats.isCompleted);
-  // [12-15] are reserved in v6: written 0 regardless of what the struct carries.
-  EXPECT_EQ(parsed.avgSecondsPerForwardPage, 0);
-  EXPECT_EQ(parsed.paceSampleCount, 0);
+  // [12-15] are reserved in v6 and must be written zero.
+  EXPECT_EQ(data[12], 0);
+  EXPECT_EQ(data[13], 0);
+  EXPECT_EQ(data[14], 0);
+  EXPECT_EQ(data[15], 0);
   EXPECT_EQ(parsed.estimatedTimeLeftSeconds, stats.estimatedTimeLeftSeconds);
   EXPECT_EQ(parsed.statsRevision, stats.statsRevision);
   EXPECT_EQ(parsed.startDateManual, stats.startDateManual);
@@ -553,9 +550,6 @@ TEST(StatsMigration, V6ReadsBinsRevisionAndBackfillFlag) {
     EXPECT_EQ(stats.wpmBinWords[i], 4000u + i);
     EXPECT_EQ(stats.wpmBinSeconds[i], 5000u + i);
   }
-  // [12-15] are reserved zeros in v6, not the v5 pace fields.
-  EXPECT_EQ(stats.avgSecondsPerForwardPage, 0);
-  EXPECT_EQ(stats.paceSampleCount, 0);
 }
 
 TEST(StatsMigration, BackfillFlagIsIndependentOfTheDateFlags) {

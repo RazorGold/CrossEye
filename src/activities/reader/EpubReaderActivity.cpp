@@ -1165,10 +1165,10 @@ void EpubReaderActivity::commitPageReadInterval() {
 
   // A: bin admission only, and never on a dwell that was interrupted.
   if (incomplete) return;
-  if (sessionBins.addSample(dwellMs, currentPageWordCount)) {
-    LOG_DBG("ERS", "WPM sample: %u words in %lums", static_cast<unsigned>(currentPageWordCount),
-            static_cast<unsigned long>(dwellMs));
-  }
+  // Not logged per sample: the histogram is the distribution, persisted on the
+  // card, so scripts/backfill_word_stats.py --dump can read the shape back at any
+  // time without a tethered serial capture.
+  sessionBins.addSample(dwellMs, currentPageWordCount);
 }
 
 void EpubReaderActivity::pageTurn(bool isForwardTurn) {

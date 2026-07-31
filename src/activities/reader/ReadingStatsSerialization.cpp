@@ -165,8 +165,6 @@ bool parseStatsBuffer(const uint8_t* data, const int n, BookReadingStats& out) {
   if (n == STATS_FILE_SIZE_V3 && data[0] == STATS_FILE_VERSION_V3) {
     readCommonStats(data, out);
     out.isCompleted = data[11] != 0;
-    out.avgSecondsPerForwardPage = readLe16(data, 12);
-    out.paceSampleCount = readLe16(data, 14);
     return true;
   }
 
@@ -188,13 +186,10 @@ bool parseStatsBuffer(const uint8_t* data, const int n, BookReadingStats& out) {
 
   readCommonStats(data, out);
   out.isCompleted = data[11] != 0;
-  if (n != BookReadingStats::CURRENT_FILE_SIZE) {
-    // [12-15] are reserved from v6 on. Only older files carry real values there,
-    // so v6 leaves the fields at their defaults rather than reading bytes whose
-    // meaning is now explicitly nothing.
-    out.avgSecondsPerForwardPage = readLe16(data, 12);
-    out.paceSampleCount = readLe16(data, 14);
-  }
+  // [12-15] held avgSecondsPerForwardPage / paceSampleCount through v5 and are
+  // reserved from v6 on. Nothing has read them since time-left estimation was
+  // dropped, so they are neither parsed nor kept in the struct — only the bytes
+  // survive, so the v6 offsets match v5.
   const uint8_t flags = data[16];
   out.startDateManual = (flags & FLAG_START_DATE_MANUAL) != 0;
   out.finishedDateManual = (flags & FLAG_FINISHED_DATE_MANUAL) != 0;
@@ -232,10 +227,7 @@ void serializeStatsBuffer(const BookReadingStats& stats, uint8_t* data) {
   writeLe32(data, 3, stats.totalReadingSeconds);
   writeLe32(data, 7, stats.totalPagesTurned);
   data[11] = stats.isCompleted ? 1 : 0;
-  // [12-15] held avgSecondsPerForwardPage / paceSampleCount through v5. Nothing
-  // reads them (time-left estimation uses totalReadingSeconds and progress), the
-  // histogram supersedes what they were for, and the bytes stay reserved so the
-  // v6 offsets match v5. They are written 0 and parsed back for older files only.
+  // [12-15] are reserved; see parseStatsBuffer. Written 0.
   writeLe16(data, 12, 0);
   writeLe16(data, 14, 0);
   data[16] = (stats.startDateManual ? FLAG_START_DATE_MANUAL : 0u) |

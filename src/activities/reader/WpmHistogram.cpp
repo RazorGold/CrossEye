@@ -138,10 +138,3 @@ void WpmSessionBins::clear() {
   words.fill(0);
   seconds.fill(0);
 }
-
-bool WpmSessionBins::empty() const {
-  for (size_t i = 0; i < WPM_BIN_COUNT; ++i) {
-    if (count[i] != 0) return false;
-  }
-  return true;
-}

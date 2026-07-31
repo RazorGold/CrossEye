@@ -89,5 +89,4 @@ struct WpmSessionBins {
   void mergeInto(GlobalReadingStats& stats) const;
 
   void clear();
-  bool empty() const;
 };
