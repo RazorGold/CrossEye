@@ -422,6 +422,11 @@ dwell was fragmented (by opening the stats screen, or by closing the book) can
 contribute its words more than once, along with its seconds. Never display or
 transmit it as a total.
 
+`scripts/backfill_word_stats.py` seeds this histogram for books that were read
+before the stat existed, and its `--dump` mode prints the histograms already on a
+card alongside both readings, trimmed and untrimmed. It is stdlib-only and runs
+wherever the card is visible.
+
 ## `global_stats.bin`
 
 ### Version 4
