@@ -4,6 +4,7 @@
 #include <I18n.h>
 #include <Logging.h>
 
+#include "ReadingStatsFileIo.h"
 #include "ReadingStatsSerialization.h"
 
 namespace {
@@ -105,33 +106,40 @@ void BookReadingStats::formatDuration(uint32_t seconds, char* buf, size_t len) {
   }
 }
 
-void BookReadingStats::save(const std::string& cachePath) const {
+void BookReadingStats::save(const std::string& cachePath) {
+  // Bump before writing so the file always carries the new value. A failed save
+  // leaves the in-memory revision one ahead of the disk, which is harmless: a gap
+  // in the sequence means nothing to the sync server, whereas two different files
+  // sharing a revision would make a stale upload undetectable.
+  statsRevision++;
+
   const std::string statsFileName = statsFileNameForVersion(STATS_FILE_VERSION);
-  HalFile f;
-  if (!Storage.openFileForWrite("STATS", cachePath + "/" + statsFileName, f)) {
+  const std::string statsPath = cachePath + "/" + statsFileName;
+  const bool ok = writeStatsFileAtomically(
+      "STATS", statsPath.c_str(), nullptr,
+      [](HalFile& f, const void* ctx) {
+        uint8_t data[STATS_FILE_SIZE];
+        serializeStatsBuffer(*static_cast<const BookReadingStats*>(ctx), data);
+        return f.write(data, STATS_FILE_SIZE) == static_cast<size_t>(STATS_FILE_SIZE);
+      },
+      this, STATS_FILE_SIZE);
+  if (!ok) {
     LOG_ERR("STATS", "Could not write %s", statsFileName.c_str());
-    return;
   }
-  uint8_t data[STATS_FILE_SIZE];
-  serializeStatsBuffer(*this, data);
-  f.write(data, STATS_FILE_SIZE);
-  f.close();
 }
 
 bool BookReadingStats::remove(const std::string& cachePath) {
-  const std::string statsFileName = statsFileNameForVersion(STATS_FILE_VERSION);
-  const std::string statsPath = cachePath + "/" + statsFileName;
   bool ok = true;
-  if (Storage.exists(statsPath.c_str()) && !Storage.remove(statsPath.c_str())) {
-    LOG_ERR("STATS", "Could not delete %s", statsFileName.c_str());
-    ok = false;
-  }
-
-  const std::string previousStatsFileName = statsFileNameForVersion(PREVIOUS_VERSIONED_STATS_FILE_VERSION);
-  const std::string previousStatsPath = cachePath + "/" + previousStatsFileName;
-  if (Storage.exists(previousStatsPath.c_str()) && !Storage.remove(previousStatsPath.c_str())) {
-    LOG_ERR("STATS", "Could not delete %s", previousStatsFileName.c_str());
-    ok = false;
+  // Every versioned filename, not just the current and previous one: after a
+  // version bump the older files are still on the card, still readable by
+  // openStatsFileForRead's fallback, and otherwise undeletable through the UI.
+  for (uint8_t version = STATS_FILE_VERSION; version >= 1; --version) {
+    const std::string statsFileName = statsFileNameForVersion(version);
+    const std::string statsPath = cachePath + "/" + statsFileName;
+    if (Storage.exists(statsPath.c_str()) && !Storage.remove(statsPath.c_str())) {
+      LOG_ERR("STATS", "Could not delete %s", statsFileName.c_str());
+      ok = false;
+    }
   }
 
   const std::string legacyStatsPath = cachePath + "/" + LEGACY_STATS_FILE_NAME;

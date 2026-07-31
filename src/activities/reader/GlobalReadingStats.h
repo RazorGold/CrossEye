@@ -17,8 +17,27 @@ struct GlobalReadingStats {
   std::array<uint8_t, READING_HISTORY_BYTES> readingHistoryBits{};
   uint16_t longestReadingStreak = 0;
 
-  static constexpr uint8_t CURRENT_FILE_VERSION = 3;
-  static constexpr size_t CURRENT_FILE_SIZE = 159;
+  // Words/Min histogram, same bins as BookReadingStats but with uint32_t counts:
+  // 65535 pages in one bin is ~312 hours of reading, which a heavy reader reaches
+  // in a few years across all books. A saturated count under-weights itself in the
+  // trim walk and quietly shifts the boundary, so global gets the wider type.
+  std::array<uint32_t, WPM_BIN_COUNT> wpmBinCount{};
+  std::array<uint32_t, WPM_BIN_COUNT> wpmBinWords{};
+  std::array<uint32_t, WPM_BIN_COUNT> wpmBinSeconds{};
+
+  // Sync scalars. Reserved now rather than in a later format bump, because the
+  // load path dispatches on file size and a second bump means a second migration.
+  uint32_t statsRevision = 0;         // Monotonic save counter; never goes backwards
+  uint8_t tokenRuleVersion = 0;       // Word-token rule that produced the bins
+  uint16_t idleThresholdSeconds = 0;  // Idle threshold the data was collected under
+
+  static constexpr uint8_t CURRENT_FILE_VERSION = 4;
+  static constexpr size_t CURRENT_FILE_SIZE = 270;
+  // The v3 block still leads the file, and 270 bytes exceeds the 256-byte
+  // stack-local limit, so load and save walk it in two sequential passes over one
+  // buffer of this size.
+  static constexpr size_t HEADER_BLOCK_SIZE = 159;
+  static constexpr size_t TAIL_BLOCK_SIZE = CURRENT_FILE_SIZE - HEADER_BLOCK_SIZE;
   static constexpr size_t MIN_SUPPORTED_FILE_SIZE = 13;
 
   // Loads stats from /.crosspoint/global_stats.bin. Returns default-constructed
@@ -37,8 +56,9 @@ struct GlobalReadingStats {
   // when the local stats may include in-memory changes that are not saved yet.
   static GlobalReadingStats loadAggregated(const GlobalReadingStats& localStats);
 
-  // Saves stats to /.crosspoint/global_stats.bin.
-  void save() const;
+  // Saves stats to /.crosspoint/global_stats.bin. Increments statsRevision, which
+  // is why this is not const.
+  void save();
 
   // Replaces /.crosspoint/global_stats.bin with a fresh empty file without
   // rotating or deleting any backup files.

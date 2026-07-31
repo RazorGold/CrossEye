@@ -1,8 +1,9 @@
 # File Formats
 
-These formats describe the SD-card cache files under `/.crosspoint/epub_<hash>/`.
-All POD fields are written in the ESP32 little-endian representation used by
-`Serialization.h`; strings are length-prefixed UTF-8.
+These formats describe the SD-card cache files under `/.crosspoint/epub_<hash>/`,
+plus the reading stats files under `/.crosspoint/`. All POD fields are written in
+the ESP32 little-endian representation used by `Serialization.h`; strings are
+length-prefixed UTF-8.
 
 ## `book.bin`
 
@@ -324,3 +325,155 @@ if (parsedSize != fileSize) {
     std::warning(std::format("Unparsed data detected: {} bytes remaining at offset 0x{:X}", fileSize - parsedSize, parsedSize));
 }
 ```
+
+## `stats_v6.bin`
+
+### Version 6
+
+Per-book reading statistics, at `/.crosspoint/epub_<hash>/stats_v6.bin`. Written
+by `BookReadingStats` (`src/activities/reader/`), parsed by
+`parseStatsBuffer()` in `ReadingStatsSerialization.cpp`.
+
+Unlike the cache files above, a version bump here must **not** discard the file:
+these are user statistics, not a rebuildable cache. The loader dispatches on the
+`(file size, version byte)` pair and every historical pair still parses. Older
+files are left in place rather than deleted, so `stats_v5.bin` remains as a
+fallback after the upgrade.
+
+| Offset | Size | Field | Notes |
+|---|---|---|---|
+| 0 | 1 | `version` | 6 |
+| 1 | 2 | `sessionCount` | uint16 LE |
+| 3 | 4 | `totalReadingSeconds` | uint32 LE, elapsed reading time, keeps interruptions up to the idle threshold |
+| 7 | 4 | `totalPagesTurned` | uint32 LE, no longer displayed but still maintained |
+| 11 | 1 | `isCompleted` | |
+| 12 | 2 | *reserved* | was `avgSecondsPerForwardPage`; written 0 from v6 |
+| 14 | 2 | *reserved* | was `paceSampleCount`; written 0 from v6 |
+| 16 | 1 | `flags` | bit0 `startDateManual`, bit1 `finishedDateManual`, bit2 `wordsBackfilled` |
+| 17 | 4 | `startDate` | year uint16 LE, month uint8, day uint8 |
+| 21 | 4 | `finishedDate` | same encoding |
+| 25 | 16 | `timeOfDaySeconds[4]` | uint32 LE each |
+| 41 | 28 | `dayOfWeekSeconds[7]` | uint32 LE each |
+| 69 | 4 | `estimatedTimeLeftSeconds` | uint32 LE, 0 means unavailable |
+| 73 | 16 | `wpmBinCount[8]` | uint16 LE each, saturating |
+| 89 | 32 | `wpmBinWords[8]` | uint32 LE each |
+| 121 | 32 | `wpmBinSeconds[8]` | uint32 LE each |
+| 153 | 4 | `statsRevision` | uint32 LE, monotonic, incremented on every save |
+| 157 | 8 | *reserved* | written 0 |
+
+Total: 165 bytes.
+
+Earlier versions, all still parsed: v1 (11 bytes, through `totalPagesTurned`),
+v2 (12, adds `isCompleted`), v3 (16, adds the two pace fields), v4 (69, adds the
+flags, dates and buckets), v5 (73, adds `estimatedTimeLeftSeconds`). Bytes
+`[0..72]` keep their v5 meaning and offsets in v6.
+
+### The Words/Min histogram
+
+Bytes `[73..152]` are three parallel arrays over the same eight bins of implied
+reading rate, defined in `ReadingStatsUtils.h`:
+
+```c++
+constexpr uint16_t WPM_BIN_UPPER[8] = {50, 100, 150, 200, 300, 400, 550, UINT16_MAX};
+```
+
+Bin `i` covers `[WPM_BIN_UPPER[i - 1], WPM_BIN_UPPER[i])`, bin 0 starts at 0, and
+bin 7 is open-ended. One forward page turn adds one vote to `wpmBinCount` and adds
+that page's words and seconds to `wpmBinWords` / `wpmBinSeconds`.
+
+The two kinds of value do different jobs. **Counts locate the display-time trim
+boundary** — one page, one vote, so a single four-minute distracted page cannot
+swallow the whole trim budget. **Sums produce the number**, as an exact ratio of
+accumulated words to accumulated seconds, so the reported figure carries no
+quantization error regardless of bin width. Bin geometry decides only where the
+trim boundary falls, which is why the bins below 200 wpm are narrow: that is where
+interruptions land.
+
+Nothing is ever removed from the distribution, so the trim percentage stays a
+display-time choice that can be changed later with no format bump, no migration
+and no lost history.
+
+`Σ wpmBinWords[i]` is a **rate numerator, not a count of words read**: a page whose
+dwell was fragmented (by opening the stats screen, or by closing the book) can
+contribute its words more than once, along with its seconds. Never display or
+transmit it as a total.
+
+## `global_stats.bin`
+
+### Version 4
+
+Cumulative statistics across all books, at `/.crosspoint/global_stats.bin`.
+Written by `GlobalReadingStats`. The same file layout is used for the per-device
+files under `/.crosspoint/synced_stats/`, which are summed on read.
+
+At 270 bytes the file exceeds the 256-byte stack-local limit, so both the load and
+the save walk it in **two sequential passes** over one 159-byte buffer: the header
+block (the v3 layout, unchanged) and then the tail block.
+
+| Offset | Size | Field | Notes |
+|---|---|---|---|
+| 0 | 1 | `version` | 4 |
+| 1 | 4 | `totalSessions` | uint32 LE |
+| 5 | 4 | `totalReadingSeconds` | uint32 LE |
+| 9 | 4 | `totalPagesTurned` | uint32 LE |
+| 13 | 4 | `completedBooks` | uint32 LE |
+| 17 | 16 | `timeOfDaySeconds[4]` | uint32 LE each |
+| 33 | 28 | `dayOfWeekSeconds[7]` | uint32 LE each |
+| 61 | 4 | `readingHistoryAnchorDay` | uint32 LE |
+| 65 | 92 | `readingHistoryBits[92]` | one bit per day, 730 days |
+| 157 | 2 | `longestReadingStreak` | uint16 LE |
+| 159 | 32 | `wpmBinCount[8]` | uint32 LE each — wider than per-book, see below |
+| 191 | 32 | `wpmBinWords[8]` | uint32 LE each |
+| 223 | 32 | `wpmBinSeconds[8]` | uint32 LE each |
+| 255 | 4 | `statsRevision` | uint32 LE, monotonic, incremented on every save |
+| 259 | 1 | `tokenRuleVersion` | word-token rule that produced the bins |
+| 260 | 2 | `idleThresholdSeconds` | uint16 LE, snapshot of the setting at save time |
+| 262 | 8 | *reserved* | written 0 |
+
+Total: 270 bytes. Bytes `[0..158]` are the header block; `[159..269]` are the tail.
+
+Earlier versions, all still parsed: v1 (13 bytes), v2 (17, adds
+`completedBooks`), v3 (159, adds the buckets, the reading history bitmap and the
+streak).
+
+Global bin counts are `uint32_t` where the per-book ones are `uint16_t`: 65535
+pages in a single bin is around 312 hours of reading, which one book will never
+reach but a heavy reader's lifetime total will. A saturated count under-weights
+itself when the trim boundary is located, which shifts the reported number
+quietly.
+
+The three scalars at `[255..261]` each prevent a specific silent error once these
+files are synced to a server:
+
+| Field | Prevents |
+|---|---|
+| `statsRevision` | a stale upload, a restored card backup or a rollback being merged as though it were new data |
+| `tokenRuleVersion` | ranking two devices whose firmware tokenizes words differently |
+| `idleThresholdSeconds` | comparing reading time between a 300 s device and a 120 s device as though they measured the same thing |
+
+`tokenRuleVersion` is `TOKEN_RULE_VERSION` in `ReadingStatsUtils.h`, snapshotted
+at save time along with `idleThresholdSeconds`. Bump it whenever word
+tokenization changes, so incompatible histograms are never ranked against each
+other.
+
+### Durability and downgrades
+
+Both files are replaced by writing a temp file, flushing it, closing it with the
+result checked, verifying its size on disk and then renaming it over the live
+path (`writeStatsFileAtomically()` in `ReadingStatsFileIo.cpp`). An interrupted
+save therefore leaves either the old file or the new one, never a truncated file —
+which matters most for the per-book file, where a truncated `stats_v6.bin` would
+make the loader fall back to the stale `stats_v5.bin` and silently resurrect
+pre-migration statistics.
+
+`global_stats.bin` additionally rotates to `global_stats.bin.bak` on every save.
+That backup is one book-close away from holding the same data as the primary, so
+the first upgrade of a pre-v4 file also writes a one-shot
+`global_stats.v<version>.bak` — `global_stats.v3.bak` in practice — that nothing
+ever rotates.
+
+**Downgrading firmware after the upgrade** is safe but looks alarming. Per-book,
+the v5 file is still there, so old firmware reads stale statistics rather than
+corrupt ones. Globally, old firmware sees a 270-byte file, treats it as a newer
+format, refuses to overwrite it and displays zeros — the data is intact, the
+screen is not.
