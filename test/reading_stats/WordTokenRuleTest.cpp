@@ -25,13 +25,13 @@ TEST(WordTokenRule, PunctuationIsNotAWord) {
   EXPECT_FALSE(isWordToken(""));
   EXPECT_FALSE(isWordToken("."));
   EXPECT_FALSE(isWordToken(",\""));
-  EXPECT_FALSE(isWordToken("\xE2\x80\x94"));      // em dash U+2014
-  EXPECT_FALSE(isWordToken("\xE2\x80\xA2"));      // bullet U+2022
-  EXPECT_FALSE(isWordToken("\xE2\x80\x9C"));      // left double quote U+201C
-  EXPECT_FALSE(isWordToken("\xE2\x80\xA6"));      // ellipsis U+2026
-  EXPECT_FALSE(isWordToken("\xE3\x80\x82"));      // ideographic full stop U+3002
-  EXPECT_FALSE(isWordToken("\xEF\xBC\x81"));      // fullwidth exclamation U+FF01
-  EXPECT_FALSE(isWordToken("\xE3\x80\x8C"));      // left corner bracket U+300C
+  EXPECT_FALSE(isWordToken("\xE2\x80\x94"));  // em dash U+2014
+  EXPECT_FALSE(isWordToken("\xE2\x80\xA2"));  // bullet U+2022
+  EXPECT_FALSE(isWordToken("\xE2\x80\x9C"));  // left double quote U+201C
+  EXPECT_FALSE(isWordToken("\xE2\x80\xA6"));  // ellipsis U+2026
+  EXPECT_FALSE(isWordToken("\xE3\x80\x82"));  // ideographic full stop U+3002
+  EXPECT_FALSE(isWordToken("\xEF\xBC\x81"));  // fullwidth exclamation U+FF01
+  EXPECT_FALSE(isWordToken("\xE3\x80\x8C"));  // left corner bracket U+300C
 }
 
 TEST(WordTokenRule, MalformedSequencesAreNotWords) {
@@ -77,17 +77,17 @@ TEST(WordTokenRule, CjkCountsCharactersNotTokens) {
 }
 
 TEST(WordTokenRule, CjkCharactersRoundToNearestWord) {
-  EXPECT_EQ(countTokens({"\xE6\x97\xA5"}), 1);                                    // 1 char  -> 1 word
-  EXPECT_EQ(countTokens({"\xE6\x97\xA5", "\xE6\x9C\xAC"}), 1);                    // 2 chars -> 1 word
-  EXPECT_EQ(countTokens({"\xE6\x97\xA5", "\xE6\x9C\xAC", "\xE8\xAA\x9E"}), 2);    // 3 chars -> 2 words
+  EXPECT_EQ(countTokens({"\xE6\x97\xA5"}), 1);                                  // 1 char  -> 1 word
+  EXPECT_EQ(countTokens({"\xE6\x97\xA5", "\xE6\x9C\xAC"}), 1);                  // 2 chars -> 1 word
+  EXPECT_EQ(countTokens({"\xE6\x97\xA5", "\xE6\x9C\xAC", "\xE8\xAA\x9E"}), 2);  // 3 chars -> 2 words
 }
 
 TEST(WordTokenRule, CjkPunctuationIsNeitherWordNorCharacter) {
   PageWordCount count;
-  count.addToken("\xE6\x97\xA5");      // 日
-  count.addToken("\xE3\x80\x82");      // 。
-  count.addToken("\xE3\x80\x8C");      // 「
-  count.addToken("\xE6\x9C\xAC");      // 本
+  count.addToken("\xE6\x97\xA5");  // 日
+  count.addToken("\xE3\x80\x82");  // 。
+  count.addToken("\xE3\x80\x8C");  // 「
+  count.addToken("\xE6\x9C\xAC");  // 本
   EXPECT_EQ(count.cjkCharacters, 2);
   EXPECT_EQ(count.latinWords, 0);
   EXPECT_EQ(count.total(), 1);

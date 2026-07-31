@@ -15,9 +15,7 @@ uint32_t totalCount(const WpmSessionBins& bins) {
 }
 
 // Dwell that makes a page of `words` read at exactly `wpm`.
-uint32_t dwellMsFor(const uint16_t words, const uint32_t wpm) {
-  return static_cast<uint32_t>(words) * 60000UL / wpm;
-}
+uint32_t dwellMsFor(const uint16_t words, const uint32_t wpm) { return static_cast<uint32_t>(words) * 60000UL / wpm; }
 }  // namespace
 
 TEST(WpmBins, BinEdgesMatchTheDocumentedRanges) {

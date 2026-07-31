@@ -3,7 +3,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-
 #include <limits>
 
 constexpr size_t READING_TIME_BUCKET_COUNT = 4;

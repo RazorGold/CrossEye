@@ -12,11 +12,11 @@ namespace {
 // because a line may break around them. Counting them as words would inflate a
 // Japanese page by every 。 and 「 on it.
 bool isCjkPunctuation(const uint32_t cp) {
-  return (cp >= 0x3000 && cp <= 0x303F)     // CJK Symbols and Punctuation
-         || (cp >= 0xFE30 && cp <= 0xFE4F)  // CJK Compatibility Forms (vertical punctuation)
-         || (cp >= 0xFF01 && cp <= 0xFF0F)  // fullwidth ! through /
-         || (cp >= 0xFF1A && cp <= 0xFF20)  // fullwidth : through @
-         || (cp >= 0xFF3B && cp <= 0xFF40)  // fullwidth [ through `
+  return (cp >= 0x3000 && cp <= 0x303F)      // CJK Symbols and Punctuation
+         || (cp >= 0xFE30 && cp <= 0xFE4F)   // CJK Compatibility Forms (vertical punctuation)
+         || (cp >= 0xFF01 && cp <= 0xFF0F)   // fullwidth ! through /
+         || (cp >= 0xFF1A && cp <= 0xFF20)   // fullwidth : through @
+         || (cp >= 0xFF3B && cp <= 0xFF40)   // fullwidth [ through `
          || (cp >= 0xFF5B && cp <= 0xFF60);  // fullwidth { through ｠
 }
 
