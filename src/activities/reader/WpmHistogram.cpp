@@ -7,6 +7,90 @@ size_t wpmBinIndex(const uint32_t wpm) {
   return WPM_BIN_COUNT - 1;
 }
 
+WpmReading trimmedWordsPerMinute(const uint32_t count[WPM_BIN_COUNT], const uint32_t words[WPM_BIN_COUNT],
+                                 const uint32_t seconds[WPM_BIN_COUNT], const bool untrimmedFallback) {
+  WpmReading reading;
+
+  // 64-bit sums: a lifetime of global bins can carry more words than a uint32_t
+  // holds, and this runs once, at display time, off the reading path.
+  uint64_t totalCount = 0;
+  uint64_t totalWords = 0;
+  uint64_t totalSeconds = 0;
+  for (size_t i = 0; i < WPM_BIN_COUNT; ++i) {
+    totalCount += count[i];
+    totalWords += words[i];
+    totalSeconds += seconds[i];
+  }
+
+  // All bins zero means not measured, which is also the sole condition the backfill
+  // script keys on.
+  if (totalCount == 0 || totalSeconds == 0) return reading;
+
+  uint64_t drop = 0;
+  if (totalCount < MIN_WPM_SAMPLES) {
+    if (!untrimmedFallback) return reading;
+  } else {
+    drop = totalCount * WPM_TRIM_PERCENT / 100;
+  }
+
+  // Low bins first: the slow side is the only side worth trimming.
+  for (size_t i = 0; i < WPM_BIN_COUNT && drop > 0; ++i) {
+    if (count[i] == 0) continue;
+    if (count[i] <= drop) {
+      totalWords -= words[i];
+      totalSeconds -= seconds[i];
+      drop -= count[i];
+      continue;
+    }
+    // Pro-rata within the boundary bin, so there is no whole-bin cliff: a bin
+    // holding 12% of pages gives up 10/12 of its words and seconds rather than all
+    // of them. Whole-bin trimming failed exactly where it mattered most, in bin 0.
+    //
+    // Integer division, so a single-bin histogram is reproduced to within a wpm
+    // rather than bit-exactly — the ratio only survives untouched when the count
+    // divides the bin's words and seconds evenly. Irrelevant to a displayed
+    // integer, but the sync server must use the same arithmetic to agree.
+    totalWords -= static_cast<uint64_t>(words[i]) * drop / count[i];
+    totalSeconds -= static_cast<uint64_t>(seconds[i]) * drop / count[i];
+    drop = 0;
+  }
+
+  if (totalSeconds == 0) return reading;
+
+  const uint64_t wpm = totalWords * 60ULL / totalSeconds;
+  reading.available = true;
+  reading.wordsPerMinute = wpm > UINT16_MAX ? UINT16_MAX : static_cast<uint16_t>(wpm);
+  return reading;
+}
+
+WpmReading bookWordsPerMinute(const BookReadingStats& stats) {
+  // Under a minute of reading is not a pace, whatever the bins say.
+  if (stats.totalReadingSeconds <= 60) return {};
+
+  uint32_t count[WPM_BIN_COUNT];
+  for (size_t i = 0; i < WPM_BIN_COUNT; ++i) count[i] = stats.wpmBinCount[i];
+
+  // No untrimmed fallback per book: below the minimum the card shows nothing rather
+  // than an interruption-contaminated average, which is the very figure Words/Min
+  // exists to replace. Showing it for a new book's first session and then having it
+  // jump when the reducer engaged would be worse than showing nothing.
+  WpmReading reading = trimmedWordsPerMinute(count, stats.wpmBinWords.data(), stats.wpmBinSeconds.data(), false);
+
+  // The backfill seeds exactly MIN_WPM_SAMPLES votes into one bin, so a total still
+  // at or below that means no measured sample has arrived yet.
+  if (reading.available && stats.wordsBackfilled) {
+    uint32_t totalCount = 0;
+    for (size_t i = 0; i < WPM_BIN_COUNT; ++i) totalCount += stats.wpmBinCount[i];
+    reading.estimated = totalCount <= MIN_WPM_SAMPLES;
+  }
+  return reading;
+}
+
+WpmReading globalWordsPerMinute(const GlobalReadingStats& stats) {
+  if (stats.totalReadingSeconds <= 60) return {};
+  return trimmedWordsPerMinute(stats.wpmBinCount.data(), stats.wpmBinWords.data(), stats.wpmBinSeconds.data(), true);
+}
+
 bool WpmSessionBins::addSample(const uint32_t dwellMs, const uint16_t pageWords) {
   // An image page, or a page whose blocks yielded no word tokens, is real reading
   // time but carries no rate.

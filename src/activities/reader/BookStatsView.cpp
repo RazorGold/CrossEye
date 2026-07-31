@@ -9,6 +9,7 @@
 #include <cstdio>
 
 #include "MappedInputManager.h"
+#include "WpmHistogram.h"
 #include "components/CompactHeader.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -214,11 +215,15 @@ bool estimateFinishDateFromDailyPace(const BookReadingStats& stats, const Readin
   return outDate.isValid();
 }
 
-float pagesPerMinute(const uint32_t totalPagesTurned, const uint32_t totalReadingSeconds) {
-  if (totalReadingSeconds <= 60) {
-    return 0.0f;
+// Renders a reduced Words/Min figure into a stat cell buffer. Integer: "247.3
+// words/min" would imply a precision the figure does not have. A leading "~" marks
+// a value the backfill script estimated rather than measured.
+void formatWordsPerMinute(const WpmReading& reading, char* buf, const size_t len) {
+  if (!reading.available) {
+    snprintf(buf, len, "-");
+    return;
   }
-  return static_cast<float>(totalPagesTurned) * 60.0f / static_cast<float>(totalReadingSeconds);
+  snprintf(buf, len, "%s%u", reading.estimated ? "~" : "", static_cast<unsigned>(reading.wordsPerMinute));
 }
 
 void drawCenteredLabel(const GfxRenderer& renderer, const int fontId, const int x, const int w, const int y,
@@ -335,9 +340,9 @@ void drawPerBookStatsCard(GfxRenderer& renderer, const int x, const int y, const
   }
   drawStatCell(renderer, x + thirdW, thirdW, y + layout.topCardTitleH + rowH, rowH, buf, tr(STR_TIME_LEFT));
 
-  snprintf(buf, sizeof(buf), "%.1f", pagesPerMinute(stats.totalPagesTurned, stats.totalReadingSeconds));
+  formatWordsPerMinute(bookWordsPerMinute(stats), buf, sizeof(buf));
   drawStatCell(renderer, x + thirdW * 2, thirdW, y + layout.topCardTitleH + rowH, rowH, buf,
-               tr(STR_STATS_PAGES_PER_MIN));
+               tr(STR_STATS_WORDS_PER_MIN));
 
   if (!showRtcStats) {
     return;
@@ -399,8 +404,8 @@ void drawGlobalStatsCard(GfxRenderer& renderer, const int x, const int y, const 
   BookReadingStats::formatDuration(stats.totalReadingSeconds, buf, sizeof(buf));
   drawStatCell(renderer, x + thirdW, thirdW, y + layout.topCardTitleH, rowH, buf, tr(STR_STATS_TIME_LBL));
 
-  snprintf(buf, sizeof(buf), "%.1f", pagesPerMinute(stats.totalPagesTurned, stats.totalReadingSeconds));
-  drawStatCell(renderer, x + thirdW * 2, thirdW, y + layout.topCardTitleH, rowH, buf, tr(STR_STATS_PAGES_PER_MIN));
+  formatWordsPerMinute(globalWordsPerMinute(stats), buf, sizeof(buf));
+  drawStatCell(renderer, x + thirdW * 2, thirdW, y + layout.topCardTitleH, rowH, buf, tr(STR_STATS_WORDS_PER_MIN));
 
   const uint32_t avgSecs = stats.totalSessions > 0 ? stats.totalReadingSeconds / stats.totalSessions : 0;
   BookReadingStats::formatDuration(avgSecs, buf, sizeof(buf));

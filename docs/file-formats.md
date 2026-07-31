@@ -393,6 +393,30 @@ Nothing is ever removed from the distribution, so the trim percentage stays a
 display-time choice that can be changed later with no format bump, no migration
 and no lost history.
 
+**Reducing the bins to a number** (`trimmedWordsPerMinute()` in
+`WpmHistogram.cpp`) is one rule, used by both stats cards and intended for the
+sync server too, so every device and every friend is ranked by identical
+arithmetic:
+
+1. Sum the counts. All zero means not measured.
+2. Below `MIN_WPM_SAMPLES` (25, about one 9-minute session), the per-book card
+   reports nothing and the global card reports the untrimmed ratio.
+3. Otherwise drop the slowest `WPM_TRIM_PERCENT` (10%) of pages **by count**,
+   walking the bins from bin 0 upwards, and report `words * 60 / seconds` over
+   what remains.
+
+Counts locate the boundary so that one page is one vote: trimming by *seconds*
+instead would let a single four-minute distracted page count as 240 units of
+"slowest 10%" and spend the entire budget. The boundary bin is pro-rated rather
+than dropped whole, so a bin holding 12% of pages gives up 10/12 of its words
+and seconds. That arithmetic is integer, so a single-bin histogram — what the
+backfill script produces — is reproduced to within a wpm rather than bit-exactly.
+
+The trim is asymmetric because the contamination is. The figure is time-weighted:
+a distracted page sitting for four minutes drags the ratio down hard, while a page
+flipped through in three seconds contributes three seconds and cannot move a ratio
+built from hours.
+
 `Σ wpmBinWords[i]` is a **rate numerator, not a count of words read**: a page whose
 dwell was fragmented (by opening the stats screen, or by closing the book) can
 contribute its words more than once, along with its seconds. Never display or

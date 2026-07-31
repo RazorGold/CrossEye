@@ -25,6 +25,47 @@ constexpr uint16_t MIN_WORDS_FOR_RATE_GATE = 40;
 // [WPM_BIN_UPPER[i - 1], WPM_BIN_UPPER[i]), bin 0 starts at 0, bin 7 is open-ended.
 size_t wpmBinIndex(uint32_t wpm);
 
+// Share of the slowest pages the display-time reducer drops. A display-time
+// constant over retained data, so changing it costs a firmware change and nothing
+// else: no format bump, no migration, no lost history, and it re-reads all
+// existing history correctly. That property is why the histogram is stored at all.
+constexpr uint32_t WPM_TRIM_PERCENT = 10;
+
+// Roughly one 9-minute session at 3.5 pages/min. Below it a per-book figure would
+// be one interruption away from meaningless, so the card shows nothing instead.
+constexpr uint32_t MIN_WPM_SAMPLES = 25;
+
+struct WpmReading {
+  bool available = false;
+  uint16_t wordsPerMinute = 0;
+  // The value still comes from the backfill script's seed rather than measurement.
+  // Backfilled figures are derived from totalReadingSeconds, which includes idle
+  // time up to the threshold, so they read 20-30% lower than a measured pace and
+  // must not be presented as the same statistic.
+  bool estimated = false;
+};
+
+// The one reducer, used for both cards and by the sync server: trim the slowest
+// WPM_TRIM_PERCENT of pages by count, then report the exact ratio of the words and
+// seconds that remain.
+//
+// Asymmetric by construction, because the contamination is. The figure is
+// time-weighted — every page is weighted by the seconds it consumed — so a
+// distracted page sitting for four minutes drags the ratio down hard while a page
+// flipped through in three seconds contributes three seconds and cannot move it.
+// Counts locate the boundary so one page is one vote: trimming by seconds instead
+// would let a single distracted page spend the entire trim budget.
+//
+// untrimmedFallback decides what happens below MIN_WPM_SAMPLES: global reports the
+// untrimmed ratio, which is a reasonable aggregate and is populated from first boot
+// after a backfill, while per-book reports nothing.
+WpmReading trimmedWordsPerMinute(const uint32_t count[WPM_BIN_COUNT], const uint32_t words[WPM_BIN_COUNT],
+                                 const uint32_t seconds[WPM_BIN_COUNT], bool untrimmedFallback);
+
+// Card-level entry points, carrying each file's sentinel policy.
+WpmReading bookWordsPerMinute(const BookReadingStats& stats);
+WpmReading globalWordsPerMinute(const GlobalReadingStats& stats);
+
 // One session's samples, merged into the per-book and global files together with
 // the session's time and pages. Buffered rather than applied per sample because
 // the session commit is gated: a session too short to contribute reading time must
