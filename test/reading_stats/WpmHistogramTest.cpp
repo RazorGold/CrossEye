@@ -396,7 +396,7 @@ TEST(WpmCard, GlobalFallsBackToUntrimmedBelowTheMinimum) {
   EXPECT_FALSE(reading.estimated);
 }
 
-TEST(WpmCard, BackfilledSeedIsMarkedEstimatedUntilRealSamplesArrive) {
+TEST(WpmCard, BackfilledBooksStayMarkedEstimated) {
   BookReadingStats stats;
   stats.totalReadingSeconds = 36000;
   stats.wordsBackfilled = true;
@@ -412,11 +412,23 @@ TEST(WpmCard, BackfilledSeedIsMarkedEstimatedUntilRealSamplesArrive) {
   // exactly rather than approximately.
   EXPECT_EQ(seeded.wordsPerMinute, 90000u * 60u / 21600u);
 
-  // One measured session later, the marker goes away.
+  // One measured session later the figure is still ~98% estimate by time weight,
+  // because the seed carries hours against the session's minutes. The marker has
+  // to stay, and it stays for good: the seeded seconds never leave the histogram.
   stats.wpmBinCount[5] = 30;
   stats.wpmBinWords[5] = 2100;
   stats.wpmBinSeconds[5] = 380;
-  EXPECT_FALSE(bookWordsPerMinute(stats).estimated);
+  const WpmReading afterOneSession = bookWordsPerMinute(stats);
+  ASSERT_TRUE(afterOneSession.available);
+  EXPECT_TRUE(afterOneSession.estimated);
+  // Still dominated by the seed, not the session.
+  EXPECT_LT(afterOneSession.wordsPerMinute, 300);
+
+  // And after a lot more measured reading.
+  stats.wpmBinCount[5] = 3000;
+  stats.wpmBinWords[5] = 210000;
+  stats.wpmBinSeconds[5] = 38000;
+  EXPECT_TRUE(bookWordsPerMinute(stats).estimated);
 }
 
 TEST(WpmCard, MeasuredBooksAreNeverMarkedEstimated) {

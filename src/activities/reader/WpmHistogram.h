@@ -38,10 +38,12 @@ constexpr uint32_t MIN_WPM_SAMPLES = 25;
 struct WpmReading {
   bool available = false;
   uint16_t wordsPerMinute = 0;
-  // The value still comes from the backfill script's seed rather than measurement.
-  // Backfilled figures are derived from totalReadingSeconds, which includes idle
-  // time up to the threshold, so they read 20-30% lower than a measured pace and
-  // must not be presented as the same statistic.
+  // The figure is partly or wholly the backfill script's estimate rather than
+  // measurement. Backfilled figures are derived from totalReadingSeconds, which
+  // includes idle time up to the threshold, so they read 20-30% lower than a
+  // measured pace and must not be presented as the same statistic. Stays true for
+  // the life of the book: the seeded words and seconds are never removed from the
+  // histogram, so the figure never becomes purely measured.
   bool estimated = false;
 };
 

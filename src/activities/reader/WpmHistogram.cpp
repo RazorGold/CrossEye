@@ -76,13 +76,13 @@ WpmReading bookWordsPerMinute(const BookReadingStats& stats) {
   // jump when the reducer engaged would be worse than showing nothing.
   WpmReading reading = trimmedWordsPerMinute(count, stats.wpmBinWords.data(), stats.wpmBinSeconds.data(), false);
 
-  // The backfill seeds exactly MIN_WPM_SAMPLES votes into one bin, so a total still
-  // at or below that means no measured sample has arrived yet.
-  if (reading.available && stats.wordsBackfilled) {
-    uint32_t totalCount = 0;
-    for (size_t i = 0; i < WPM_BIN_COUNT; ++i) totalCount += stats.wpmBinCount[i];
-    reading.estimated = totalCount <= MIN_WPM_SAMPLES;
-  }
+  // Marked for as long as the book carries the flag, not just until the first
+  // measured session. Once a histogram has been seeded its figure is permanently
+  // part estimate — the seeded seconds never leave it — and because the figure is
+  // time-weighted, a seed carrying hours of reading still dominates a session's
+  // few minutes for a long time. Clearing the marker after one session would show
+  // a bare number that is still almost entirely an estimate.
+  reading.estimated = reading.available && stats.wordsBackfilled;
   return reading;
 }
 

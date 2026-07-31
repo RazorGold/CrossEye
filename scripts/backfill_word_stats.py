@@ -23,6 +23,8 @@ estimate is derived from totalReadingSeconds, which includes idle time up to the
 device's idle threshold, so estimates read 20-30% lower. Every book this script
 touches is therefore marked with the wordsBackfilled flag, which the device shows
 as a leading "~" and a sync server must use to segregate estimates before ranking.
+The marker is permanent: the seeded words and seconds are never removed from the
+histogram, so a backfilled book's figure never becomes purely measured.
 
 **Per-book only.** The global histogram is never seeded. It has no flags field to
 mark an estimate with, the figure is time-weighted so a seed carrying a whole
