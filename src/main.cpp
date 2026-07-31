@@ -49,27 +49,23 @@ EpdFont reader14RegularFont(&READER_FONT_DATA(14, regular));
 EpdFont reader14BoldFont(&READER_FONT_DATA(14, bold));
 EpdFont reader14ItalicFont(&READER_FONT_DATA(14, italic));
 EpdFont reader14BoldItalicFont(&READER_FONT_DATA(14, bolditalic));
-EpdFontFamily reader14FontFamily(&reader14RegularFont, &reader14BoldFont, &reader14ItalicFont,
-                                 &reader14BoldItalicFont);
+EpdFontFamily reader14FontFamily(&reader14RegularFont, &reader14BoldFont, &reader14ItalicFont, &reader14BoldItalicFont);
 #ifndef OMIT_FONTS
 EpdFont reader12RegularFont(&READER_FONT_DATA(12, regular));
 EpdFont reader12BoldFont(&READER_FONT_DATA(12, bold));
 EpdFont reader12ItalicFont(&READER_FONT_DATA(12, italic));
 EpdFont reader12BoldItalicFont(&READER_FONT_DATA(12, bolditalic));
-EpdFontFamily reader12FontFamily(&reader12RegularFont, &reader12BoldFont, &reader12ItalicFont,
-                                 &reader12BoldItalicFont);
+EpdFontFamily reader12FontFamily(&reader12RegularFont, &reader12BoldFont, &reader12ItalicFont, &reader12BoldItalicFont);
 EpdFont reader16RegularFont(&READER_FONT_DATA(16, regular));
 EpdFont reader16BoldFont(&READER_FONT_DATA(16, bold));
 EpdFont reader16ItalicFont(&READER_FONT_DATA(16, italic));
 EpdFont reader16BoldItalicFont(&READER_FONT_DATA(16, bolditalic));
-EpdFontFamily reader16FontFamily(&reader16RegularFont, &reader16BoldFont, &reader16ItalicFont,
-                                 &reader16BoldItalicFont);
+EpdFontFamily reader16FontFamily(&reader16RegularFont, &reader16BoldFont, &reader16ItalicFont, &reader16BoldItalicFont);
 EpdFont reader18RegularFont(&READER_FONT_DATA(18, regular));
 EpdFont reader18BoldFont(&READER_FONT_DATA(18, bold));
 EpdFont reader18ItalicFont(&READER_FONT_DATA(18, italic));
 EpdFont reader18BoldItalicFont(&READER_FONT_DATA(18, bolditalic));
-EpdFontFamily reader18FontFamily(&reader18RegularFont, &reader18BoldFont, &reader18ItalicFont,
-                                 &reader18BoldItalicFont);
+EpdFontFamily reader18FontFamily(&reader18RegularFont, &reader18BoldFont, &reader18ItalicFont, &reader18BoldItalicFont);
 #endif  // OMIT_FONTS
 
 EpdFont smallFont(&notosans_8_regular);
