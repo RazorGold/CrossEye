@@ -63,6 +63,12 @@ class KeyboardEntryActivity : public Activity {
   bool confirmLongHandled = false;
 
   bool cursorMode = false;
+  // Boards without Left/Right keys (Waveshare 3.97"): Up/Down pick a row, Select enters
+  // it, Up/Down then move across the keys, Select types and drops back to row picking.
+  bool railMode = false;
+  bool inRow = false;
+  bool railSwallowUp = false;  // ignore the Up that opened cursor mode until it is released
+  void loopRail();
   bool togglePos = false;
   size_t cursorPos = 0;  // byte offset into text (always on a code point boundary)
   bool upHeld = false;

@@ -1,5 +1,6 @@
 #include "KeyboardEntryActivity.h"
 
+#include <BoardConfig.h>
 #include <HalGPIO.h>
 #include <I18n.h>
 
@@ -134,6 +135,9 @@ void KeyboardEntryActivity::onEnter() {
   symbols = false;
   urlPanel = false;
   cursorMode = false;
+  railMode = BoardConfig::isWaveshare397();
+  inRow = false;
+  railSwallowUp = false;
   togglePos = false;
   passwordVisible = false;
   selRow = 0;
@@ -490,7 +494,158 @@ fui::Rect KeyboardEntryActivity::keyboardRect() const {
                    static_cast<int16_t>(height)};
 }
 
+void KeyboardEntryActivity::loopRail() {
+  const bool isPassword = inputType == InputType::Password;
+  auto leaveCursorMode = [this] {
+    cursorMode = false;
+    togglePos = false;
+    passwordVisible = false;
+    hintVisible = false;
+    railSwallowUp = false;
+    requestUpdate();
+  };
+
+  if (cursorMode) {
+    // Text editing: Up/Down move the cursor, Select / BOOT go back to the keyboard. On a
+    // password field, moving past the end reaches the [abc]/[***] toggle; Select flips it.
+    if (mappedInput.wasReleased(MappedInputManager::Button::Up)) railSwallowUp = false;
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [this] {
+      if (railSwallowUp) return;
+      if (togglePos) {
+        cursorPos = savedCursorPos;
+        togglePos = false;
+      } else if (cursorPos > 0) {
+        cursorPos = utf8Prev(text, cursorPos);
+      }
+      requestUpdate();
+    });
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down}, [this, isPassword] {
+      if (togglePos) return;
+      if (cursorPos < text.length()) {
+        cursorPos = utf8Next(text, cursorPos);
+      } else if (isPassword) {
+        savedCursorPos = cursorPos;
+        togglePos = true;
+      }
+      requestUpdate();
+    });
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      if (togglePos) {
+        passwordVisible = !passwordVisible;
+        requestUpdate();
+      } else {
+        leaveCursorMode();
+      }
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::Back)) leaveCursorMode();
+    return;
+  }
+
+  // Up: with a row picked it steps back across the keys; when picking rows a short press
+  // goes up a row and a long press opens text editing.
+  if (mappedInput.wasPressed(MappedInputManager::Button::Up)) {
+    upHeld = true;
+    upLongHandled = false;
+  }
+  if (!inRow) {
+    if (upHeld && !upLongHandled && mappedInput.isPressed(MappedInputManager::Button::Up) &&
+        mappedInput.getHeldTime() > LONG_PRESS_MS) {
+      cursorMode = true;
+      upLongHandled = true;
+      railSwallowUp = true;
+      hintVisible = true;
+      hintShowTime = millis();
+      requestUpdate();
+      return;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
+      if (upHeld && !upLongHandled) {
+        moveSelectionRow(-1);
+        requestUpdate();
+      }
+      upHeld = false;
+      upLongHandled = false;
+    }
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down}, [this] {
+      moveSelectionRow(1);
+      requestUpdate();
+    });
+  } else {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
+      upHeld = false;
+      upLongHandled = false;
+    }
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [this] {
+      moveSelectionCol(-1);
+      requestUpdate();
+    });
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down}, [this] {
+      moveSelectionCol(1);
+      requestUpdate();
+    });
+  }
+
+  // Select: enters the picked row; inside a row it types the key (hold for the alternate
+  // character, or hold on DEL to clear everything) and drops back to row picking.
+  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+    confirmHeld = true;
+    confirmLongHandled = false;
+  }
+  const fui::KeyboardKey* selKey = selectedKey();
+  const bool selectedDel = selKey && selKey->value == fui::QWERTY_KEY_BACKSPACE;
+  if (inRow && confirmHeld && !confirmLongHandled && mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
+    const unsigned long held = mappedInput.getHeldTime();
+    if (selectedDel && held > DEL_LONG_PRESS_MS) {
+      clearAllOrAltOnSelected();
+      confirmLongHandled = true;
+      inRow = false;
+      requestUpdate();
+    } else if (!selectedDel && held > LONG_PRESS_MS && clearAllOrAltOnSelected()) {
+      confirmLongHandled = true;
+      inRow = false;
+      requestUpdate();
+    }
+  }
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (confirmHeld && !confirmLongHandled) {
+      if (!inRow) {
+        inRow = true;
+        clampSelection();
+        requestUpdate();
+      } else {
+        if (selKey) activateValue(selKey->value, false);
+        inRow = false;
+        clampSelection();
+        requestUpdate();
+      }
+    }
+    confirmHeld = false;
+    confirmLongHandled = false;
+  }
+
+  // BOOT: leave the row, or cancel the whole entry from row picking.
+  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+    if (inRow) {
+      inRow = false;
+      requestUpdate();
+    } else {
+      onCancel();
+      return;
+    }
+  }
+
+  if (hintVisible && millis() - hintShowTime > 4000) {
+    hintVisible = false;
+    requestUpdate();
+  }
+}
+
 void KeyboardEntryActivity::loop() {
+  if (railMode) {
+    loopRail();
+    return;
+  }
+
   int tx = 0;
   int ty = 0;
 
@@ -842,10 +997,13 @@ void KeyboardEntryActivity::render(RenderLock&&) {
         hintLineY += hintLh;
         renderer.drawCenteredText(SMALL_FONT_ID, hintLineY, tr(STR_KB_HINT_RETURN_CURSOR), true);
       } else {
-        renderer.drawCenteredText(SMALL_FONT_ID, hintLineY, tr(STR_KB_HINT_MOVE_CURSOR), true);
+        renderer.drawCenteredText(SMALL_FONT_ID, hintLineY,
+                                  railMode ? tr(STR_KB_RAIL_MOVE_CURSOR) : tr(STR_KB_HINT_MOVE_CURSOR), true);
         hintLineY += hintLh;
         if (inputType == InputType::Password) {
-          const char* passTip = passwordVisible ? tr(STR_KB_HINT_HIDE_PASSWORD) : tr(STR_KB_HINT_SHOW_PASSWORD);
+          const char* passTip = railMode ? tr(STR_KB_RAIL_TOGGLE_PASSWORD)
+                                : passwordVisible ? tr(STR_KB_HINT_HIDE_PASSWORD)
+                                                  : tr(STR_KB_HINT_SHOW_PASSWORD);
           renderer.drawCenteredText(SMALL_FONT_ID, hintLineY, passTip, true);
         }
       }
@@ -860,6 +1018,23 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   const int underlineBottom = inputStartY + inputHeight + lineHeight + metrics.verticalSpacing + 4;
   auto drawTip = [&](const char* tip, int y) { renderer.drawCenteredText(SMALL_FONT_ID, y, tip, true); };
 
+  if (railMode) {
+    const char* railTips[3] = {nullptr, nullptr, nullptr};
+    int railCount = 0;
+    if (cursorMode) {
+      railTips[railCount++] = tr(STR_KB_RAIL_MOVE_CURSOR);
+      railTips[railCount++] = (inputType == InputType::Password) ? tr(STR_KB_RAIL_TOGGLE_PASSWORD) : tr(STR_KB_RAIL_RETURN_KEYBOARD);
+    } else if (inRow) {
+      railTips[railCount++] = tr(STR_KB_RAIL_PICK_KEY);
+    } else {
+      railTips[railCount++] = tr(STR_KB_RAIL_PICK_ROW);
+      if (!text.empty()) railTips[railCount++] = tr(STR_KB_HINT_EDIT_ENTRY);
+    }
+    int y = (underlineBottom + kbRect.y) / 2 - (railCount + 1) * tipsLh / 2;
+    drawTip(tr(STR_KB_TIPS), y);
+    y += tipsLh;
+    for (int i = 0; i < railCount; i++, y += tipsLh) drawTip(railTips[i], y);
+  } else {
   int tipCount = 0;
   if (cursorMode) {
     tipCount = 1;
@@ -908,6 +1083,8 @@ void KeyboardEntryActivity::render(RenderLock&&) {
     }
   }
 
+  }
+
   // The FreeInkUI keyboard draws the keys and registers their hit rects into
   // `interactions`; loop() routes touch snapshots against that table.
   interactionsReady = false;
@@ -929,7 +1106,8 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   props.modeLabel =
       (symbols || (inputType == InputType::Url && urlPanel)) ? tr(STR_KEY_MODE_ABC) : tr(STR_KEY_MODE_SYMBOLS);
   props.inputMask = static_cast<uint16_t>(fui::InputTouch | fui::InputLongPress);
-  props.selectedIndex = cursorMode ? -1 : static_cast<int16_t>(selectedLogicalIndex());
+  // Row-then-key mode: while picking a row no single key is lit; the whole row is outlined below.
+  props.selectedIndex = (cursorMode || (railMode && !inRow)) ? -1 : static_cast<int16_t>(selectedLogicalIndex());
   props.labelText.font = fui::GfxRendererTarget::FONT_BODY;
   props.altText.font = fui::GfxRendererTarget::FONT_SMALL;
   props.gap = static_cast<int16_t>(metrics.keyboardKeySpacing);
@@ -941,10 +1119,17 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   fui::keyboard(frame, kbRect, props);
   interactionsReady = true;
 
+  if (railMode && !inRow && !cursorMode) {
+    const int rowY = kbRect.y + selRow * (metrics.keyboardKeyHeight + metrics.keyboardKeySpacing);
+    renderer.drawRect(kbRect.x - 3, rowY - 3, kbRect.width + 6, metrics.keyboardKeyHeight + 6, 3, true);
+  }
+
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
-  GUI.drawSideButtonHints(renderer, ">", "<");
+  if (!railMode) {
+    GUI.drawSideButtonHints(renderer, ">", "<");
+  }
 
   renderer.displayBuffer();
 }
