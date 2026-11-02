@@ -7,6 +7,9 @@
 #include <HalClock.h>
 #include <HalDisplay.h>
 #include <HalGPIO.h>
+#if FREEINK_DEVICE_WAVESHARE397
+#include <Axp2101Pek.h>
+#endif
 #include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <HalSystem.h>
@@ -282,6 +285,13 @@ void setup() {
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
   const auto wakeupReason = gpio.getWakeupReason();
+#if FREEINK_DEVICE_WAVESHARE397
+  // Logged here, not in Axp2101Pek::begin(): that runs before the USB log link is
+  // up. Explains why each boot happened (PWR key vs USB insert vs reset).
+  LOG_INF("MAIN", "Boot: wake=%d reset=%d cause=%d pmic_pwron=0x%02X vbus_only=%d", static_cast<int>(wakeupReason),
+          static_cast<int>(esp_reset_reason()), static_cast<int>(esp_sleep_get_wakeup_cause()),
+          Axp2101Pek::powerOnStatus(), Axp2101Pek::poweredOnByVbusOnly());
+#endif
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
       LOG_DBG("MAIN", "Verifying power button press duration");

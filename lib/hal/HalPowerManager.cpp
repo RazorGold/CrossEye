@@ -9,6 +9,7 @@
 
 #include <cassert>
 
+#include "Axp2101Pek.h"
 #include "HalGPIO.h"
 
 HalPowerManager powerManager;  // Singleton instance
@@ -101,6 +102,25 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   // deep-sleep command while its rail is still up (enterDeepSleep() in main.cpp
   // guarantees that ordering).
   freeink::PowerManager::powerDownRailsForSleep();
+
+#if FREEINK_DEVICE_WAVESHARE397
+  // PWR is the AXP2101 PEK: "sleep" is a PMIC power-off, and a later PWR press
+  // cold-boots the board (no GPIO could wake deep sleep from the PMIC's IRQ line:
+  // GPIO38 is not RTC-capable on the S3). powerOff() returns only if the rails
+  // did not drop; then fall back to deep sleep woken by the rocker/BOOT keys so the
+  // board is never left with no wake source.
+  Axp2101Pek::powerOff();
+  LOG_ERR("PWR", "AXP2101 power-off did not take; falling back to deep sleep");
+  constexpr uint64_t WAKE_KEYS = (1ULL << 4) | (1ULL << 5) | (1ULL << 6) | (1ULL << 0);
+  for (const int pin : {4, 5, 6, 0}) pinMode(pin, INPUT_PULLUP);
+  const unsigned long releaseStart = millis();
+  while (millis() - releaseStart < 2000 &&
+         (!digitalRead(4) || !digitalRead(5) || !digitalRead(6) || !digitalRead(0))) {
+    delay(20);
+  }
+  freeink::PowerManager::armWakeOnPins(WAKE_KEYS, /*wakeLow=*/true);
+  freeink::PowerManager::deepSleep();
+#endif
 
   // Waits for the power button to be physically released (so holding it doesn't
   // immediately wake the device again), then arms the wake source and sleeps.

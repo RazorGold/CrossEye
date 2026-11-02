@@ -1,4 +1,5 @@
 #include <HalGPIO.h>
+#include "Axp2101Pek.h"
 #include <Logging.h>
 #include <PowerManager.h>
 #include <Preferences.h>
@@ -205,6 +206,11 @@ void HalGPIO::begin() {
 #else
   _deviceType = DeviceType::X4;
 #endif
+#if FREEINK_DEVICE_WAVESHARE397
+  // PWR is the AXP2101 PEK, not a GPIO: feed it in as BTN_POWER.
+  Axp2101Pek::begin();
+  InputManager::setButtonHook(Axp2101Pek::buttonMask);
+#endif
   inputMgr.begin();
 }
 
@@ -325,6 +331,16 @@ HalGPIO::WakeupReason HalGPIO::getWakeupReason() const {
   const auto resetReason = esp_reset_reason();
 
   const bool usbConnected = isUsbConnected();
+
+#if FREEINK_DEVICE_WAVESHARE397
+  // The AXP2101 powers the board on when USB is plugged in. That is not a user
+  // wake: treat it like any other USB-caused cold boot so the app powers back off
+  // (charging continues in the PMIC). Only on a true cold start; an ESP-only reset
+  // leaves the PMIC's power-on status stale.
+  if (resetReason == ESP_RST_POWERON && Axp2101Pek::poweredOnByVbusOnly()) {
+    return WakeupReason::AfterUSBPower;
+  }
+#endif
 
   if (resetReason == ESP_RST_DEEPSLEEP &&
       (wakeupCause == ESP_SLEEP_WAKEUP_GPIO || wakeupCause == ESP_SLEEP_WAKEUP_EXT1)) {
