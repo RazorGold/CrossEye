@@ -1,6 +1,7 @@
 #include "UITheme.h"
 
 #include <FsHelpers.h>
+#include <BoardConfig.h>
 #include <GfxRenderer.h>
 #include <HalGPIO.h>
 #include <Logging.h>
@@ -56,7 +57,9 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
 const ThemeMetrics& UITheme::getMetrics() const {
   // hasTouch() can flip once touch init completes after static construction, so the
   // cached copy is refreshed when the flag differs instead of copying the struct per call.
-  const bool touch = gpio.hasTouch();
+  // Boards with no usable hint row (touch boards, and the Waveshare 3.97" whose keys are
+  // not on the X4's front row) draw no hints and give the strip back to the layouts.
+  const bool touch = gpio.hasTouch() || BoardConfig::isWaveshare397();
   if (!metricsValid || touch != metricsForTouch) {
     adjustedMetrics = *currentMetrics;
     if (touch) {
